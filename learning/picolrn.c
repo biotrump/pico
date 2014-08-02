@@ -615,6 +615,7 @@ static uint8_t* bpixelss[MAXNUMBS];
 int bnrowss[MAXNUMBS];
 int bncolss[MAXNUMBS];
 
+//loading nonfaces
 int load_background_images(char* folder)
 {
 	FILE* list;
@@ -943,7 +944,7 @@ float sample_training_data(int classs[], float rs[], float cs[], float ss[], uin
 	n = 0;
 
 	/*
-		object samples
+		positive (face) object samples
 	*/
 
 	for(i=0; i<numos; ++i)
@@ -964,10 +965,10 @@ float sample_training_data(int classs[], float rs[], float cs[], float ss[], uin
 			++n;
 		}
 
-	*np = n;
+	*np = n;//number of positive samples
 
 	/*
-		non-object samples
+		negative(non-face) non-object samples
 	*/
 
 	if(!prngsinitialized)
@@ -1036,7 +1037,7 @@ float sample_training_data(int classs[], float rs[], float cs[], float ss[], uin
 
 						//
 						++n;
-						++*nn;
+						++*nn;////number of negative samples
 					}
 					else
 						stop = 1;
@@ -1191,7 +1192,8 @@ int main(int argc, char* argv[])
 
 	//
 	if(argc == 6)
-	{
+	{//create and init an object detector "d"
+	//./picolrn 0 0 1 1 d > log.txt
 		sscanf(argv[1], "%f", &odetector.tr);
 		sscanf(argv[2], "%f", &odetector.tc);
 		sscanf(argv[3], "%f", &odetector.tsr);
@@ -1201,21 +1203,22 @@ int main(int argc, char* argv[])
 		odetector.numstages = 0;
 
 		//
-		if(!save_to_file(argv[5]))
+		if(!save_to_file(argv[5])) //detector to be saved in "d"
 			return 0;
 
 		//
 		printf("INITIALIZING: (%f, %f, %f, %f)\n", odetector.tr, odetector.tc, odetector.tsr, odetector.tsc);
 
 		//
-		return 0;
+		return 0;//it only creates a "d" header file.
 	}
 	else if(argc == 11)
-	{
-		src = argv[1];
+	{//append stages
+	//./picolrn d faces nonfaces 1 1e-6 6 0.980 0.5 1 d >> log.txt
+		src = argv[1];	//"d" the detector
 
-		objspath = argv[2];
-		nonobjimgspath = argv[3];
+		objspath = argv[2];	//cropped faces images
+		nonobjimgspath = argv[3];//cropped nonfaces images
 
 		sscanf(argv[4], "%d", &maxnstages);
 		sscanf(argv[5], "%f", &targetfpr);
@@ -1224,7 +1227,7 @@ int main(int argc, char* argv[])
 		sscanf(argv[8], "%f", &maxstagefpr);
 		sscanf(argv[9], "%d", &maxnumtreesperstage);
 
-		dst = argv[10];
+		dst = argv[10];	//
 	}
 	else
 	{
@@ -1235,7 +1238,7 @@ int main(int argc, char* argv[])
 	// initialize PRNG
 	smwcrand(time(0));
 
-	//
+	//only valid in append stages , ie. argc==11
 	t = getticks();
 	if(!load_object_samples(objspath))
 	{
@@ -1247,7 +1250,7 @@ int main(int argc, char* argv[])
 	//
 	t = getticks();
 	if(!load_background_images(nonobjimgspath))
-	{
+	{//load nonfaces
 		printf("cannot load background images ... exiting ...\n");
 		return 1;
 	}
@@ -1263,6 +1266,8 @@ int main(int argc, char* argv[])
 
 	printf("\n");
 
+	//transform detector "d" to a hex array
+	//python tohexarray.py d > face-detector-from-genki-dataset.ea
 	//
 	return 0;
 }

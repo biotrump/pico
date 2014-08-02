@@ -25,7 +25,7 @@
 #include "opencv2/objdetect/objdetect.hpp"
 #include "opencv2/highgui/highgui.hpp"
 #include "opencv2/imgproc/imgproc.hpp"
-#define _ROTATION_INVARIANT_DETECTION_
+//#define _ROTATION_INVARIANT_DETECTION_
 
 /*
 	
@@ -102,12 +102,14 @@ void process_image(IplImage* frame, int draw, int print)
 #else
 	// scan the image at 12 different orientations
 	ndetections = 0;
-
-	for(i=0; i<12; ++i)
+	#pragma omp parallel for
 	{
-		float orientation = i*2*3.14f/12;
+		for(i=0; i<12; ++i)
+		{
+			float orientation = i*2*3.14f/12;
 
-		ndetections += find_objects(orientation, &rs[ndetections], &cs[ndetections], &ss[ndetections], &qs[ndetections], MAXNDETECTIONS-ndetections, appfinder, pixels, nrows, ncols, ldim, SCALEFACTOR, STRIDEFACTOR, minsize, MIN(nrows, ncols), 1);
+			ndetections += find_objects(orientation, &rs[ndetections], &cs[ndetections], &ss[ndetections], &qs[ndetections], MAXNDETECTIONS-ndetections, appfinder, pixels, nrows, ncols, ldim, SCALEFACTOR, STRIDEFACTOR, minsize, MIN(nrows, ncols), 1);
+		}
 	}
 #endif
 
@@ -169,7 +171,7 @@ void process_webcam_frames()
 			cvCopy(frame, framecopy, 0);
 
 			// webcam outputs mirrored frames (at least on my machines); you can safely comment out this line if you find it unnecessary
-			cvFlip(framecopy, framecopy, 1);
+			//cvFlip(framecopy, framecopy, 1);
 
 			// all the smart stuff happens in the following function
 			process_image(framecopy, 1, 0);
