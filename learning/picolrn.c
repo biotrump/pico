@@ -371,6 +371,14 @@ int split_training_data(int tcode, float tvals[], int rs[], int cs[], int srs[],
 	return n0;
 }
 
+/*
+randomly generate two points/pixels. the point is in the radius of 128 from the origin.
+the distance of the two points is smaller than 64.
+The training sample is transformed to dim[-128-127]*[-128-127]
+The generated two pixels are used to become a binary comparison feature, so there will be many binary features.
+The training sets/samples are estimated the WMSE by each of the comparison feature with the two pixel comparison.
+After each of the features is evaluated for its WMSE, a minimum WMSE can be found.
+*/
 int32_t generate_binary_test()
 {
 
@@ -388,18 +396,18 @@ int32_t generate_binary_test()
 
 		int d, d1, d2;
 
-		//
+		//randomly get a 4-byte
 		tcode = mwcrand();
 
 		p = (int8_t*)&tcode;
 
-		//
+		//radius of the pixel1 and pixel2
 		d1 = p[0]*p[0] + p[1]*p[1]; // distance from (0, 0) for the first pixel
 		d2 = p[2]*p[2] + p[3]*p[3]; // distance from (0, 0) for the second pixel
 
 		d = (p[0]-p[2])*(p[0]-p[2]) + (p[1]-p[3])*(p[1]-p[3]); // distance between two pixels
 
-		//
+		//two pixels are in the radius 128, two pixel distance is 64
 		if(d1<128*128 && d2<128*128 && d<64*64)
 			return tcode;
 	}
