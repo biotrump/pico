@@ -48,7 +48,7 @@ def saveasrid(im, path):
 	#
 	f = open(path, 'wb')
 
-	#
+	#'ii' = 2 (i)nteger (w,h) to write
 	data = struct.pack('ii', w, h)
 	f.write(data)
 

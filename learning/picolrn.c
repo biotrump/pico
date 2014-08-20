@@ -33,7 +33,7 @@
 #define MIN(a, b) ((a)<(b)?(a):(b))
 #define SQR(x) ((x)*(x))
 
-/*
+/*  Raw Intensity Data
 	- loads an 8-bit grey image saved in the <RID> file format
 	- <RID> file contents:
 		- a 32-bit signed integer w (image width)
@@ -567,7 +567,7 @@ int load_object_samples(const char* folder)
 
 		// load image
 		sprintf(fullpath, "%s/%s", folder, buffer);
-
+		//raw intensity data :rid
 		if(!loadrid(&opixels, &nrows, &ncols, fullpath))
 			return 0;
 
@@ -578,6 +578,8 @@ int load_object_samples(const char* folder)
 		// get samples
 		for(i=0; i<n; ++i)
 		{
+			//object sample is specified by three coordinates (row, column and size; 
+			//all in pixels)
 			float r, c, s;
 
 			//
@@ -1193,6 +1195,7 @@ int main(int argc, char* argv[])
 	//
 	if(argc == 6)
 	{//create and init an object detector "d"
+	//start the learning process
 	//./picolrn 0 0 1 1 d > log.txt
 		sscanf(argv[1], "%f", &odetector.tr);
 		sscanf(argv[2], "%f", &odetector.tc);
@@ -1213,12 +1216,20 @@ int main(int argc, char* argv[])
 		return 0;//it only creates a "d" header file.
 	}
 	else if(argc == 11)
-	{//append stages
-	//./picolrn d faces nonfaces 1 1e-6 6 0.980 0.5 1 d >> log.txt
+	{
+	/*append stages : updating odetector.numstages
+	./picolrn d faces nonfaces 1 1e-6 6 0.980 0.5 1 d >> log.txt
+	./picolrn d faces nonfaces 1 1e-6 6 0.980 0.5 1 d >> log.txt
+	./picolrn d faces nonfaces 1 1e-6 6 0.985 0.5 1 d >> log.txt
+	./picolrn d faces nonfaces 1 1e-6 6 0.990 0.5 2 d >> log.txt
+	./picolrn d faces nonfaces 1 1e-6 6 0.995 0.5 3 d >> log.txt
+	./picolrn d faces nonfaces 6 1e-6 6 0.997 0.5 10 d >> log.txt
+	./picolrn d faces nonfaces 10 1e-6 6 0.999 0.5 20 d >> log.txt
+	*/
 		src = argv[1];	//"d" the detector
 
-		objspath = argv[2];	//cropped faces images
-		nonobjimgspath = argv[3];//cropped nonfaces images
+		objspath = argv[2];	//training samples : faces images
+		nonobjimgspath = argv[3];//training samples : non-faces images
 
 		sscanf(argv[4], "%d", &maxnstages);
 		sscanf(argv[5], "%f", &targetfpr);
@@ -1240,7 +1251,7 @@ int main(int argc, char* argv[])
 
 	//only valid in append stages , ie. argc==11
 	t = getticks();
-	if(!load_object_samples(objspath))
+	if(!load_object_samples(objspath))//training samples : faces images 
 	{
 		printf("cannot load object samples ... exiting ...\n");
 		return 1;
@@ -1249,7 +1260,7 @@ int main(int argc, char* argv[])
 
 	//
 	t = getticks();
-	if(!load_background_images(nonobjimgspath))
+	if(!load_background_images(nonobjimgspath))//training samples : non-faces images
 	{//load nonfaces
 		printf("cannot load background images ... exiting ...\n");
 		return 1;

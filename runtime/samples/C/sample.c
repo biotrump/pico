@@ -57,6 +57,10 @@
 #define STRIDEFACTOR 0.1f
 #endif
 
+#ifndef MAXNDETECTIONS
+#define MAXNDETECTIONS 10	//2048 is too many
+#endif
+
 /*
 	
 */
@@ -70,7 +74,6 @@ void process_image(IplImage* frame, int draw, int print)
 	unsigned char* pixels;
 	int nrows, ncols, ldim;
 
-	#define MAXNDETECTIONS 2048
 	int ndetections;
 	float qs[MAXNDETECTIONS], rs[MAXNDETECTIONS], cs[MAXNDETECTIONS], ss[MAXNDETECTIONS];
 
@@ -106,7 +109,7 @@ void process_image(IplImage* frame, int draw, int print)
 	{
 		for(i=0; i<12; ++i)
 		{
-			float orientation = i*2*3.14f/12;
+			float orientation = i*2*3.14f/12;// 2Pi/12= 360"/12=30"
 
 			ndetections += find_objects(orientation, &rs[ndetections], &cs[ndetections], &ss[ndetections], &qs[ndetections], MAXNDETECTIONS-ndetections, appfinder, pixels, nrows, ncols, ldim, SCALEFACTOR, STRIDEFACTOR, minsize, MIN(nrows, ncols), 1);
 		}

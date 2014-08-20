@@ -350,16 +350,17 @@ static int _FIXED_POINT_SCALE_ = (1<<15);
 		//
 		ndetections = 0;
 
-		s = minsize;
+		s = minsize;//the minimum size : minsize*minsize to be detected
 
-		while(s<=maxsize)
+		while(s<=maxsize)//maximum size to be detected, usually is MIN(frame_width, frame_height)
 		{
 			float r, c, dr, dc;
 
-			//
+			//dr = delta row, dc = delta column, r=row,c=column
+			//stridefactor=0.1
 			dr = dc = MAX(stridefactor*s, 1.0f);
 
-			//
+			//moving the scan window s*s around the whole frame
 			for(r=s/2+1; r<=nrows-s/2-1; r+=dr)
 				for(c=s/2+1; c<=ncols-s/2-1; c+=dc)
 				{
