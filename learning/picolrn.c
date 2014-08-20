@@ -466,14 +466,23 @@ int grow_subtree(rtree* t, int nodeidx, int d, int maxd, float tvals[], int rs[]
 	nrands = NRANDS;
 
 	for(i=0; i<nrands; ++i)
-		tcodes[i] = generate_binary_test();
+		tcodes[i] = generate_binary_test();//return two pixels to compare the intensity as a feature.
 
-	//
+	//How to calculate Weighted Mean Square Error to generate a decision tree?
+	//Find the best attribute/feature to split the training set. Attribute/feature of an image is a two-pixel comparision.
+	//So there are many possible splits of a training set by the any two-pixel pair, because there are many two-pixel pair in an image.
+	//The training samples/set is divided into two classes/groups(+1,-1) by each feature generated from generate_binary_test()
+	//the split is a "hypothesis" to face(+1) and non-face (-1), so it may be different to the ground-truth.
+	//Each feature will be a root node of binary stump : http://en.wikipedia.org/wiki/Decision_stump
+	//Each feature then splits the whole training set into two subtrees, then the Weighted Mean Sqaure Error can be calculated.
+	//Then find the minimum WSME from all the calculated WSME for each node(feature).
+	//The feature which has the minumum WMSE is the root node to split the training set.
+	//This recursive iteration from tree top to the desired depth. It's not possible to use all possible features to generate the decision tree.
 	#pragma omp parallel for
 	for(i=0; i<nrands; ++i)
 		spliterrors[i] = get_split_error(tcodes[i], tvals, rs, cs, srs, scs, pixelss, nrowss, ncolss, ldims, ws, inds, indsnum);
 
-	//
+	//the spliterrors array contains every WMSE calculated by the binary_test pixel pair.
 	bestspliterror = spliterrors[0];
 	t->tcodes[nodeidx] = tcodes[0];
 
