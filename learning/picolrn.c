@@ -45,7 +45,7 @@ int loadrid(uint8_t* pixels[], int* nrows, int* ncols, const char* path)
 {
 	FILE* file;
 	int w, h;
-	
+
 	// open file
 	file = fopen(path, "rb");
 
@@ -371,49 +371,6 @@ int split_training_data(int tcode, float tvals[], int rs[], int cs[], int srs[],
 	return n0;
 }
 
-/*
-randomly generate two points/pixels. the point is in the radius of 128 from the origin.
-the distance of the two points is smaller than 64.
-The training sample is transformed to dim[-128-127]*[-128-127]
-The generated two pixels are used to become a binary comparison feature, so there will be many binary features.
-The training sets/samples are estimated the WMSE by each of the comparison feature with the two pixel comparison.
-After each of the features is evaluated for its WMSE, a minimum WMSE can be found.
-*/
-int32_t generate_binary_test()
-{
-
-#ifndef _EXPERIMENTAL_REGULARIZATION_PROCEDURE_
-	return mwcrand();
-#else
-	/*
-		regularizes the training process
-	*/
-
-	while(1)
-	{
-		int32_t tcode;
-		int8_t* p;
-
-		int d, d1, d2;
-
-		//randomly get a 4-byte
-		tcode = mwcrand();
-
-		p = (int8_t*)&tcode;
-
-		//radius of the pixel1 and pixel2
-		d1 = p[0]*p[0] + p[1]*p[1]; // distance from (0, 0) for the first pixel
-		d2 = p[2]*p[2] + p[3]*p[3]; // distance from (0, 0) for the second pixel
-
-		d = (p[0]-p[2])*(p[0]-p[2]) + (p[1]-p[3])*(p[1]-p[3]); // distance between two pixels
-
-		//two pixels are in the radius 128, two pixel distance is 64
-		if(d1<128*128 && d2<128*128 && d<64*64)
-			return tcode;
-	}
-#endif
-}
-
 int grow_subtree(rtree* t, int nodeidx, int d, int maxd, float tvals[], int rs[], int cs[], int srs[], int scs[], uint8_t* pixelss[], int nrowss[], int ncolss[], int ldims[], double ws[], int inds[], int indsnum)
 {
 	int i, nrands;
@@ -465,9 +422,6 @@ int grow_subtree(rtree* t, int nodeidx, int d, int maxd, float tvals[], int rs[]
 	// generate binary test codes
 	nrands = NRANDS;
 
-	for(i=0; i<nrands; ++i)
-		tcodes[i] = generate_binary_test();//return two pixels to compare the intensity as a feature.
-
 	//How to calculate Weighted Mean Square Error to generate a decision tree?
 	//Find the best attribute/feature to split the training set. Attribute/feature of an image is a two-pixel comparision.
 	//So there are many possible splits of a training set by the any two-pixel pair, because there are many two-pixel pair in an image.
@@ -478,6 +432,10 @@ int grow_subtree(rtree* t, int nodeidx, int d, int maxd, float tvals[], int rs[]
 	//Then find the minimum WSME from all the calculated WSME for each node(feature).
 	//The feature which has the minumum WMSE is the root node to split the training set.
 	//This recursive iteration from tree top to the desired depth. It's not possible to use all possible features to generate the decision tree.
+	for(i=0; i<nrands; ++i)
+		tcodes[i] = mwcrand();
+
+	//
 	#pragma omp parallel for
 	for(i=0; i<nrands; ++i)
 		spliterrors[i] = get_split_error(tcodes[i], tvals, rs, cs, srs, scs, pixelss, nrowss, ncolss, ldims, ws, inds, indsnum);
@@ -667,12 +625,12 @@ int load_background_images(char* folder)
 }
 
 /*
-	
+
 */
 
 struct
 {
-	float tr, tc, tsr, tsc;
+	float tsr, tsc;
 
 	int numstages;
 
@@ -696,8 +654,8 @@ int classify_region(float* o, float r, float c, float s, uint8_t pixels[], int n
 		return 1;
 
 	//
-	ir = (int)( r + odetector.tr*s );
-	ic = (int)( c + odetector.tc*s );
+	ir = (int)( r );
+	ic = (int)( c );
 
 	isr = (int)( odetector.tsr*s );
 	isc = (int)( odetector.tsc*s );
@@ -733,8 +691,6 @@ int save_to_file(char* path)
 		return 0;
 
 	//
-	fwrite(&odetector.tr, sizeof(float), 1, f);
-	fwrite(&odetector.tc, sizeof(float), 1, f);
 	fwrite(&odetector.tsr, sizeof(float), 1, f);
 	fwrite(&odetector.tsc, sizeof(float), 1, f);
 
@@ -766,8 +722,6 @@ int load_from_file(char* path)
 		return 0;
 
 	//
-	fread(&odetector.tr, sizeof(float), 1, f);
-	fread(&odetector.tc, sizeof(float), 1, f);
 	fread(&odetector.tsr, sizeof(float), 1, f);
 	fread(&odetector.tsc, sizeof(float), 1, f);
 
@@ -825,8 +779,8 @@ int learn_new_stage(int stageidx, int tdepth, float mintpr, float maxfpr, int ma
 
 	for(i=0; i<np+nn; ++i)
 	{
-		irs[i] = (int)( rs[i] + odetector.tr*ss[i] );
-		ics[i] = (int)( cs[i] + odetector.tc*ss[i] );
+		irs[i] = (int)( rs[i] );
+		ics[i] = (int)( cs[i] );
 
 		isrs[i] = (int)( odetector.tsr*ss[i] );
 		iscs[i] = (int)( odetector.tsc*ss[i] );
@@ -1077,7 +1031,7 @@ float sample_training_data(int classs[], float rs[], float cs[], float ss[], uin
 	printf("	elapsed time: %f  [sec]\n", getticks()-t);
 
 	/*
-		
+
 	*/
 
 	return efpr;
@@ -1169,7 +1123,7 @@ int append_stages_to_odetector(char* src, char* dst, int maxnumstagestoappend, f
 }
 
 /*
-	
+
 */
 
 const char* howto()
@@ -1207,22 +1161,20 @@ int main(int argc, char* argv[])
 	int tdepths, maxnumtreesperstage;
 
 	//
-	if(argc == 6)
+	if(argc == 4)
 	{
-		sscanf(argv[1], "%f", &odetector.tr);
-		sscanf(argv[2], "%f", &odetector.tc);
-		sscanf(argv[3], "%f", &odetector.tsr);
-		sscanf(argv[4], "%f", &odetector.tsc);
+		sscanf(argv[1], "%f", &odetector.tsr);
+		sscanf(argv[2], "%f", &odetector.tsc);
 
 		//
 		odetector.numstages = 0;
 
 		//
-		if(!save_to_file(argv[5]))
+		if(!save_to_file(argv[3]))
 			return 0;
 
 		//
-		printf("INITIALIZING: (%f, %f, %f, %f)\n", odetector.tr, odetector.tc, odetector.tsr, odetector.tsc);
+		printf("INITIALIZING: (%f, %f)\n", odetector.tsr, odetector.tsc);
 
 		//
 		return 0;
