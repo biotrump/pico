@@ -180,21 +180,21 @@ int bintest(int tcode, int r, int c, int sr, int sc, uint8_t pixels[], int nrows
 	int r1, c1, r2, c2;
 	int8_t* p = (int8_t*)&tcode;
 
-	//
+	//p[0],p[1] : the first pixel
 	r1 = (256*r + p[0]*sr)/256;
 	c1 = (256*c + p[1]*sc)/256;
-
+	//p[2],p[3] : the second pixel
 	r2 = (256*r + p[2]*sr)/256;
 	c2 = (256*c + p[3]*sc)/256;
 
-	//
+	//the practical position of a pixel in the image
 	r1 = MIN(MAX(0, r1), nrows-1);
 	c1 = MIN(MAX(0, c1), ncols-1);
 
 	r2 = MIN(MAX(0, r2), nrows-1);
 	c2 = MIN(MAX(0, c2), ncols-1);
 
-	//
+	//compare the intensity of the two pixels in the image
 	return pixels[r1*ldim+c1]<=pixels[r2*ldim+c2];
 }
 
@@ -278,6 +278,10 @@ int load_rtree_from_file(rtree* t, FILE* f)
 	return 1;
 }
 
+/*
+inds : an array of total indsum integers init as {0,1,2,3... indsnum-1}
+indsnum : np + nn, total number of the training samples to be processed
+*/
 float get_split_error(int tcode, float tvals[], int rs[], int cs[], int srs[], int scs[], uint8_t* pixelss[], int nrowss[], int ncolss[], int ldims[], double ws[], int inds[], int indsnum)
 {
 	int i, j;
@@ -290,22 +294,22 @@ float get_split_error(int tcode, float tvals[], int rs[], int cs[], int srs[], i
 	//
 	wsum = wsum0 = wsum1 = wtvalsum0 = wtvalsum1 = wtvalsumsqr0 = wtvalsumsqr1 = 0.0;
 
-	for(i=0; i<indsnum; ++i)
+	for(i=0; i<indsnum; ++i)//for all training sample images
 	{
 		if( bintest(tcode, rs[inds[i]], cs[inds[i]], srs[inds[i]], scs[inds[i]], pixelss[inds[i]], nrowss[inds[i]], ncolss[inds[i]], ldims[inds[i]]) )
-		{
-			wsum1 += ws[inds[i]];
+		{//cluster/group 0
+			wsum1 += ws[inds[i]];//sum up weight of cluster 0 images
 			wtvalsum1 += ws[inds[i]]*tvals[inds[i]];
 			wtvalsumsqr1 += ws[inds[i]]*SQR(tvals[inds[i]]);
 		}
 		else
-		{
-			wsum0 += ws[inds[i]];
+		{//cluster/group 1
+			wsum0 += ws[inds[i]];//sum up weight of cluster 1 images
 			wtvalsum0 += ws[inds[i]]*tvals[inds[i]];
 			wtvalsumsqr0 += ws[inds[i]]*SQR(tvals[inds[i]]);
 		}
 
-		wsum += ws[inds[i]];
+		wsum += ws[inds[i]];//Sum up all weights of the training sample images. each sample has its weight.
 	}
 
 	//
@@ -316,6 +320,10 @@ float get_split_error(int tcode, float tvals[], int rs[], int cs[], int srs[], i
 	return (float)( (wmse0 + wmse1)/wsum );
 }
 
+/*
+inds : an array of total indsum integers init as {0,1,2,3... indsnum-1}
+indsnum : np + nn, total number of the training samples to be processed
+*/
 int split_training_data(int tcode, float tvals[], int rs[], int cs[], int srs[], int scs[], uint8_t* pixelss[], int nrowss[], int ncolss[], int ldims[], double ws[], int inds[], int indsnum)
 {
 	int stop;
@@ -371,6 +379,13 @@ int split_training_data(int tcode, float tvals[], int rs[], int cs[], int srs[],
 	return n0;
 }
 
+/*
+nodeidx : init from 0
+d : current tree depth, init from 0
+maxd : maximum tree depth to traverse
+inds : an array of total indsum integers init as {0,1,2,3... indsnum-1}
+indsnum : np + nn, total number of the training samples to be processed
+*/
 int grow_subtree(rtree* t, int nodeidx, int d, int maxd, float tvals[], int rs[], int cs[], int srs[], int scs[], uint8_t* pixelss[], int nrowss[], int ncolss[], int ldims[], double ws[], int inds[], int indsnum)
 {
 	int i, nrands;
@@ -380,7 +395,8 @@ int grow_subtree(rtree* t, int nodeidx, int d, int maxd, float tvals[], int rs[]
 
 	int n0;
 
-	//
+	//in order to speed up the learning, so a bounded tree depth is used to stop the recursive.
+	//maxd(max tree depth) is specified by python script to start the train.
 	if(d == maxd)
 	{
 		int lutidx;
@@ -420,7 +436,7 @@ int grow_subtree(rtree* t, int nodeidx, int d, int maxd, float tvals[], int rs[]
 	}
 
 	// generate binary test codes
-	nrands = NRANDS;
+	nrands = NRANDS;	//total 1024 2-pixel pairs are generated randomly. This 2-pixel pair will be an internal node in decision tree.
 
 	//How to calculate Weighted Mean Square Error to generate a decision tree?
 	//Find the best attribute/feature to split the training set. Attribute/feature of an image is a two-pixel comparision.
@@ -432,28 +448,29 @@ int grow_subtree(rtree* t, int nodeidx, int d, int maxd, float tvals[], int rs[]
 	//Then find the minimum WSME from all the calculated WSME for each node(feature).
 	//The feature which has the minumum WMSE is the root node to split the training set.
 	//This recursive iteration from tree top to the desired depth. It's not possible to use all possible features to generate the decision tree.
-	for(i=0; i<nrands; ++i)
-		tcodes[i] = mwcrand();
+	for(i=0; i<nrands; ++i)	//total 1024 pairs(features) to be used for split the training sample
+		tcodes[i] = mwcrand();//get the randomly genereated 2-pixel pair position for later comparison to generate decision tree
 
 	#pragma omp parallel for
-	for(i=0; i<nrands; ++i)
+	for(i=0; i<nrands; ++i)//compute every WMSE by the 2-pixel pairs stored in tcodes array.
 		spliterrors[i] = get_split_error(tcodes[i], tvals, rs, cs, srs, scs, pixelss, nrowss, ncolss, ldims, ws, inds, indsnum);
 
 	//the spliterrors array contains every WMSE calculated by the binary_test pixel pair.
 	bestspliterror = spliterrors[0];
 	t->tcodes[nodeidx] = tcodes[0];
 
-	for(i=1; i<nrands; ++i)
+	for(i=1; i<nrands; ++i)//get the minimum WMSE as the best attribute to split the training sample to build decision tree.
 		if(bestspliterror > spliterrors[i])
 		{
 			bestspliterror = spliterrors[i];
 			t->tcodes[nodeidx] = tcodes[i];
 		}
 
-	//
+	//split the training data into two sub-trees by the minimum WSME attribute which becomes an internal node
+	//to check the branch by the input image.
 	n0 = split_training_data(t->tcodes[nodeidx], tvals, rs, cs, srs, scs, pixelss, nrowss, ncolss, ldims, ws, inds, indsnum);
 
-	//
+	//now we get two subtrees after the split. This is recursive iteration to split.
 	grow_subtree(t, 2*nodeidx+1, d+1, maxd, tvals, rs, cs, srs, scs, pixelss, nrowss, ncolss, ldims, ws, &inds[0], n0);
 	grow_subtree(t, 2*nodeidx+2, d+1, maxd, tvals, rs, cs, srs, scs, pixelss, nrowss, ncolss, ldims, ws, &inds[n0], indsnum-n0);
 
@@ -461,6 +478,10 @@ int grow_subtree(rtree* t, int nodeidx, int d, int maxd, float tvals[], int rs[]
 	return 1;
 }
 
+/*
+
+n : np + nn, total number of the training samples
+*/
 int grow_rtree(rtree* t, int d, float tvals[], int rs[], int cs[], int srs[], int scs[], uint8_t* pixelss[], int nrowss[], int ncolss[], int ldims[], double ws[], int n)
 {
 	int i;
@@ -473,9 +494,13 @@ int grow_rtree(rtree* t, int d, float tvals[], int rs[], int cs[], int srs[], in
 	inds = (int*)malloc(n*sizeof(int));
 
 	for(i=0; i<n; ++i)
-		inds[i] = i;
+		inds[i] = i;//0,1,2,3,4
 
-	//
+	/*
+	ret = grow_subtree();
+	free(inds);
+	return !!ret;
+	*/
 	if(!grow_subtree(t, 0, 0, d, tvals, rs, cs, srs, scs, pixelss, nrowss, ncolss, ldims, ws, inds, n))
 	{
 		free(inds);
@@ -745,6 +770,11 @@ int load_from_file(char* path)
 	return 1;
 }
 
+/*
+classs : ground truth table for all training samples, +1(positive) and 0(negative)
+np : number of positive samples
+nn : number of negative samples
+*/
 int learn_new_stage(int stageidx, int tdepth, float mintpr, float maxfpr, int maxnumtrees, int classs[], float rs[], float cs[], float ss[], uint8_t* pixelss[], int nrowss[], int ncolss[], float os[], int np, int nn)
 {
 	int i;
@@ -763,13 +793,14 @@ int learn_new_stage(int stageidx, int tdepth, float mintpr, float maxfpr, int ma
 
 	int numtrees;
 
-	//
+	//the ground truth table (floating type) for positive and negative samples
 	tvals = (float*)malloc((np+nn)*sizeof(float));
 
-	for(i=0; i<np+nn; ++i)
-		if(classs[i])
+	//TODO, tvals[i] = classs[i]?+1.0f:-1.0f;
+	for(i=0; i<np+nn; ++i)//iterating all training samples
+		if(classs[i])//+1, postivie
 			tvals[i] = +1.0f; // object
-		else
+		else//0, negative
 			tvals[i] = -1.0f; // non-object
 
 	//
@@ -815,7 +846,7 @@ int learn_new_stage(int stageidx, int tdepth, float mintpr, float maxfpr, int ma
 		}
 
 		for(i=0; i<np+nn; ++i)
-			ws[i] /= wsum;
+			ws[i] /= wsum;//normalize the sum of ws to 1
 
 		// grow a tree ...
 		t = getticks();
@@ -931,7 +962,7 @@ float sample_training_data(int classs[], float rs[], float cs[], float ss[], uin
 			nrowss[n] = onrowss[i];
 			ncolss[n] = oncolss[i];
 
-			classs[n] = +1;
+			classs[n] = +1;//positive sample, +1
 
 			//
 			++n;
@@ -1005,7 +1036,7 @@ float sample_training_data(int classs[], float rs[], float cs[], float ss[], uin
 
 						os[n] = o;
 
-						classs[n] = 0;
+						classs[n] = 0;//negative sample
 
 						//
 						++n;
@@ -1201,7 +1232,7 @@ int main(int argc, char* argv[])
 
 		sscanf(argv[4], "%d", &maxnstages);
 		sscanf(argv[5], "%f", &targetfpr);
-		sscanf(argv[6], "%d", &tdepths);
+		sscanf(argv[6], "%d", &tdepths);	//maximum decision tree depth
 		sscanf(argv[7], "%f", &minstagetpr);
 		sscanf(argv[8], "%f", &maxstagefpr);
 		sscanf(argv[9], "%d", &maxnumtreesperstage);
