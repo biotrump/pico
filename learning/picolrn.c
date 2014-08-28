@@ -279,8 +279,14 @@ int load_rtree_from_file(rtree* t, FILE* f)
 }
 
 /*
+split the training sample set into two subsets by the attribute/feature "tcode" which is a two-pixel pair to compare
+After the split, calculate the wmse of the two subsets.
+refer to section 2.1 of the paper.
+tvals : ground truth table of all the training samples , -1.0f negative sample, +1.0f positive sample
 inds : an array of total indsum integers init as {0,1,2,3... indsnum-1}
 indsnum : np + nn, total number of the training samples to be processed
+
+TODO : ???? the error calculation does not seem to match section 2.1.
 */
 float get_split_error(int tcode, float tvals[], int rs[], int cs[], int srs[], int scs[], uint8_t* pixelss[], int nrowss[], int ncolss[], int ldims[], double ws[], int inds[], int indsnum)
 {
@@ -297,22 +303,22 @@ float get_split_error(int tcode, float tvals[], int rs[], int cs[], int srs[], i
 	for(i=0; i<indsnum; ++i)//for all training sample images
 	{
 		if( bintest(tcode, rs[inds[i]], cs[inds[i]], srs[inds[i]], scs[inds[i]], pixelss[inds[i]], nrowss[inds[i]], ncolss[inds[i]], ldims[inds[i]]) )
-		{//cluster/group 0
-			wsum1 += ws[inds[i]];//sum up weight of cluster 0 images
-			wtvalsum1 += ws[inds[i]]*tvals[inds[i]];
+		{//cluster/group 1
+			wsum1 += ws[inds[i]];//sum up weight of cluster 1 images
+			wtvalsum1 += ws[inds[i]]*tvals[inds[i]];//calcualte weighted average of ground truths in C1
 			wtvalsumsqr1 += ws[inds[i]]*SQR(tvals[inds[i]]);
 		}
 		else
-		{//cluster/group 1
-			wsum0 += ws[inds[i]];//sum up weight of cluster 1 images
-			wtvalsum0 += ws[inds[i]]*tvals[inds[i]];
+		{//cluster/group 0
+			wsum0 += ws[inds[i]];//sum up weight of cluster 0 images
+			wtvalsum0 += ws[inds[i]]*tvals[inds[i]];//calcualte weighted average of ground truths in C0
 			wtvalsumsqr0 += ws[inds[i]]*SQR(tvals[inds[i]]);
 		}
 
 		wsum += ws[inds[i]];//Sum up all weights of the training sample images. each sample has its weight.
 	}
 
-	//
+	//??? This formula doesn't seem to match section 2.1 WMSE.
 	wmse0 = wtvalsumsqr0 - SQR(wtvalsum0)/wsum0;
 	wmse1 = wtvalsumsqr1 - SQR(wtvalsum1)/wsum1;
 
@@ -411,7 +417,7 @@ int grow_subtree(rtree* t, int nodeidx, int d, int maxd, float tvals[], int rs[]
 
 		for(i=0; i<indsnum; ++i)
 		{
-			tvalaccum += ws[inds[i]]*tvals[inds[i]];
+			tvalaccum += ws[inds[i]]*tvals[inds[i]];//ground truth value * weight
 			wsum += ws[inds[i]];
 		}
 
@@ -424,11 +430,11 @@ int grow_subtree(rtree* t, int nodeidx, int d, int maxd, float tvals[], int rs[]
 		return 1;
 	}
 	else if(indsnum <= 1)
-	{
+	{	//only one sample in the split, so terminates the split.
 		//
 		t->tcodes[nodeidx] = 0;
 
-		//
+		//????
 		grow_subtree(t, 2*nodeidx+1, d+1, maxd, tvals, rs, cs, srs, scs, pixelss, nrowss, ncolss, ldims, ws, inds, indsnum);
 		grow_subtree(t, 2*nodeidx+2, d+1, maxd, tvals, rs, cs, srs, scs, pixelss, nrowss, ncolss, ldims, ws, inds, indsnum);
 
@@ -463,14 +469,14 @@ int grow_subtree(rtree* t, int nodeidx, int d, int maxd, float tvals[], int rs[]
 		if(bestspliterror > spliterrors[i])
 		{
 			bestspliterror = spliterrors[i];
-			t->tcodes[nodeidx] = tcodes[i];
+			t->tcodes[nodeidx] = tcodes[i];//record the best split attribute (2-pixel pair)
 		}
 
-	//split the training data into two sub-trees by the minimum WSME attribute which becomes an internal node
-	//to check the branch by the input image.
+	//split the training data into two sub-trees by the minimum WSME attribute/feature
+	//which becomes an internal node of the decision tree.
 	n0 = split_training_data(t->tcodes[nodeidx], tvals, rs, cs, srs, scs, pixelss, nrowss, ncolss, ldims, ws, inds, indsnum);
 
-	//now we get two subtrees after the split. This is recursive iteration to split.
+	//now we get two subtrees after the split. This is recursive iteration to split the two sub-trees.
 	grow_subtree(t, 2*nodeidx+1, d+1, maxd, tvals, rs, cs, srs, scs, pixelss, nrowss, ncolss, ldims, ws, &inds[0], n0);
 	grow_subtree(t, 2*nodeidx+2, d+1, maxd, tvals, rs, cs, srs, scs, pixelss, nrowss, ncolss, ldims, ws, &inds[n0], indsnum-n0);
 
