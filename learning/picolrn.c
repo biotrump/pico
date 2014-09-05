@@ -174,6 +174,11 @@ typedef struct
 
 } rtree;
 
+/*
+tcode : 4 bytes for (x,y) position used to compare pixel intensity
+	x is 2 bytes and y is 2 bytes, too.
+
+*/
 int bintest(int tcode, int r, int c, int sr, int sc, uint8_t pixels[], int nrows, int ncols, int ldim)
 {
 	//
@@ -194,7 +199,7 @@ int bintest(int tcode, int r, int c, int sr, int sc, uint8_t pixels[], int nrows
 	r2 = MIN(MAX(0, r2), nrows-1);
 	c2 = MIN(MAX(0, c2), ncols-1);
 
-	//compare the intensity of the two pixels in the image
+	//compare the intensity of the two pixels in the image, output is 0 or 1
 	return pixels[r1*ldim+c1]<=pixels[r2*ldim+c2];
 }
 
@@ -282,6 +287,10 @@ int load_rtree_from_file(rtree* t, FILE* f)
 split the training sample set into two subsets by the attribute/feature "tcode" which is a two-pixel pair to compare
 After the split, calculate the wmse of the two subsets.
 refer to section 2.1 of the paper.
+http://forum.biotrump.com/viewtopic.php?f=8&t=326
+Please also refer to BRIEF to generate random 2 pixel pairs.
+
+tcode : a postion of 2 pixels, 4 bytes long,(x,y), x pos is 2 bytes and y pos is 2 bytes used to compare the two pixel intensity.
 tvals : ground truth table of all the training samples , -1.0f negative sample, +1.0f positive sample
 inds : an array of total indsum integers init as {0,1,2,3... indsnum-1}
 indsnum : np + nn, total number of the training samples to be processed
@@ -297,7 +306,7 @@ float get_split_error(int tcode, float tvals[], int rs[], int cs[], int srs[], i
 
 	double wmse0, wmse1;
 
-	//
+	//http://forum.biotrump.com/viewtopic.php?f=8&t=326
 	wsum = wsum0 = wsum1 = wtvalsum0 = wtvalsum1 = wtvalsumsqr0 = wtvalsumsqr1 = 0.0;
 
 	for(i=0; i<indsnum; ++i)//for all training sample images
@@ -430,8 +439,8 @@ int grow_subtree(rtree* t, int nodeidx, int d, int maxd, float tvals[], int rs[]
 		return 1;
 	}
 	else if(indsnum <= 1)
-	{	//only one sample in the split, so terminates the split.
-		//
+	{	//only one sample in the split is left, so terminates the split.
+		//terminal node
 		t->tcodes[nodeidx] = 0;
 
 		//????
@@ -441,19 +450,20 @@ int grow_subtree(rtree* t, int nodeidx, int d, int maxd, float tvals[], int rs[]
 		return 1;
 	}
 
-	// generate binary test codes
+	// generate a position list. each has a 2-pixel pair (4 bytes) to compare the pixel intensity. This is very similar to BRIEF keypoint descriptor.
 	nrands = NRANDS;	//total 1024 2-pixel pairs are generated randomly. This 2-pixel pair will be an internal node in decision tree.
 
-	//How to calculate Weighted Mean Square Error to generate a decision tree?
-	//Find the best attribute/feature to split the training set. Attribute/feature of an image is a two-pixel comparision.
-	//So there are many possible splits of a training set by the any two-pixel pair, because there are many two-pixel pair in an image.
-	//The training samples/set is divided into two classes/groups(+1,-1) by each feature generated from generate_binary_test()
-	//the split is a "hypothesis" to face(+1) and non-face (-1), so it may be different to the ground-truth.
-	//Each feature will be a root node of binary stump : http://en.wikipedia.org/wiki/Decision_stump
-	//Each feature then splits the whole training set into two subtrees, then the Weighted Mean Sqaure Error can be calculated.
-	//Then find the minimum WSME from all the calculated WSME for each node(feature).
-	//The feature which has the minumum WMSE is the root node to split the training set.
-	//This recursive iteration from tree top to the desired depth. It's not possible to use all possible features to generate the decision tree.
+	/*How to calculate Weighted Mean Square Error to generate a decision tree?
+	Find the best attribute/feature to split the training set. Attribute/feature of an image is a two-pixel comparision.
+	So there are many possible splits of a training set by the any two-pixel pair, because there are many two-pixel pair in an image.
+	The training samples/set is divided into two classes/groups(+1,-1) by each feature generated from generate_binary_test()
+	the split is a "hypothesis" to face(+1) and non-face (-1), so it may be different to the ground-truth.
+	Each feature will be a root node of binary stump : http://en.wikipedia.org/wiki/Decision_stump
+	Each feature then splits the whole training set into two subtrees, then the Weighted Mean Sqaure Error can be calculated.
+	Then find the minimum WSME from all the calculated WSME for each node(feature).
+	The feature which has the minumum WMSE is the root node to split the training set.
+	This recursive iteration from tree top to the desired depth. It's not possible to use all possible features to generate the decision tree.
+	*/
 	for(i=0; i<nrands; ++i)	//total 1024 pairs(features) to be used for split the training sample
 		tcodes[i] = mwcrand();//get the randomly genereated 2-pixel pair position for later comparison to generate decision tree
 
@@ -600,7 +610,7 @@ int load_object_samples(const char* folder)
 			onrowss[numos] = nrows;
 			oncolss[numos] = ncols;
 
-			//
+			//total object samples are loaded.
 			++numos;
 		}
 	}
@@ -727,7 +737,7 @@ int save_to_file(char* path)
 	fwrite(&odetector.tsr, sizeof(float), 1, f);
 	fwrite(&odetector.tsc, sizeof(float), 1, f);
 
-	fwrite(&odetector.numstages, sizeof(int), 1, f);
+	fwrite(&odetector.numstages, sizeof(int), 1, f);//odetector.numstages == 0 in the detector init stage.
 
 	//
 	for(i=0; i<odetector.numstages; ++i)
@@ -780,6 +790,9 @@ int load_from_file(char* path)
 classs : ground truth table for all training samples, +1(positive) and 0(negative)
 np : number of positive samples
 nn : number of negative samples
+static float rs[MAXMAXNUMSAMPLES];
+static float cs[MAXMAXNUMSAMPLES];
+static float ss[MAXMAXNUMSAMPLES];
 */
 int learn_new_stage(int stageidx, int tdepth, float mintpr, float maxfpr, int maxnumtrees, int classs[], float rs[], float cs[], float ss[], uint8_t* pixelss[], int nrowss[], int ncolss[], float os[], int np, int nn)
 {
@@ -799,7 +812,7 @@ int learn_new_stage(int stageidx, int tdepth, float mintpr, float maxfpr, int ma
 
 	int numtrees;
 
-	//the ground truth table (floating type) for positive and negative samples
+	//tvals : the ground truth table (floating type) for positive and negative samples
 	tvals = (float*)malloc((np+nn)*sizeof(float));
 
 	//TODO, tvals[i] = classs[i]?+1.0f:-1.0f;
@@ -929,6 +942,9 @@ int learn_new_stage(int stageidx, int tdepth, float mintpr, float maxfpr, int ma
 	return 1;
 }
 
+/*
+numos : total object samples loaded
+*/
 float sample_training_data(int classs[], float rs[], float cs[], float ss[], uint8_t* pixelss[], int nrowss[], int ncolss[], float os[], int maxn, int* np, int* nn)
 {
 	int i, n;
@@ -1076,6 +1092,15 @@ float sample_training_data(int classs[], float rs[], float cs[], float ss[], uin
 	return efpr;
 }
 
+/*
+maxnumstagestoappend : 		sscanf(argv[4], "%d", &maxnstages);
+sscanf(argv[5], "%f", &targetfpr);	//false positive rate : error postive / total detected objects
+sscanf(argv[7], "%f", &minstagetpr);	//minimum true positive rate : 
+sscanf(argv[8], "%f", &maxstagefpr);	//maximum false positive rate : 0.5 is maximum because a random guess possibility is 0.5.
+					//A weak classifier should be better than or equal to a random guess. the fp objects will go to the next stage
+sscanf(argv[6], "%d", &tdepths);	//maximum decision tree depth. deeper gets slow response.
+sscanf(argv[9], "%d", &maxnumtreesperstage);	//a tree is a weak classifier, a stage, en emsemble, is a strong classiffier with combining trees
+*/
 int append_stages_to_odetector(char* src, char* dst, int maxnumstagestoappend, float targetfpr, float minstagetpr, float maxstagefpr, int tdepths, int maxnumtreesperstage)
 {
 	#define MAXMAXNUMSAMPLES 2*MAXNUMOS
@@ -1200,7 +1225,7 @@ int main(int argc, char* argv[])
 	int tdepths, maxnumtreesperstage;
 
 	//
-	//create and init an object detector "d"
+	//create and init an object detector "d" into a file
 	//start the learning process
 	//./picolrn 1 1 d > log.txt
 	if(argc == 4)
@@ -1208,9 +1233,9 @@ int main(int argc, char* argv[])
 		sscanf(argv[1], "%f", &odetector.tsr);
 		sscanf(argv[2], "%f", &odetector.tsc);
 		//
-		odetector.numstages = 0;
+		odetector.numstages = 0;//init
 
-		//
+		//detector d
 		if(!save_to_file(argv[3]))
 			return 0;
 
@@ -1233,17 +1258,18 @@ int main(int argc, char* argv[])
 	*/
 		src = argv[1];	//"d" the detector
 
-		objspath = argv[2];	//training samples : faces images
-		nonobjimgspath = argv[3];//training samples : non-faces images
-
+		objspath = argv[2];	//training samples : faces images (object samples)
+		nonobjimgspath = argv[3];//training samples : non-faces images (non object samples)
+		//1 1e-6 6 0.980 0.5 1 d
 		sscanf(argv[4], "%d", &maxnstages);
-		sscanf(argv[5], "%f", &targetfpr);
-		sscanf(argv[6], "%d", &tdepths);	//maximum decision tree depth
-		sscanf(argv[7], "%f", &minstagetpr);
-		sscanf(argv[8], "%f", &maxstagefpr);
-		sscanf(argv[9], "%d", &maxnumtreesperstage);
+		sscanf(argv[5], "%f", &targetfpr);	//false positive rate : error postive / total detected objects
+		sscanf(argv[6], "%d", &tdepths);	//maximum decision tree depth. deeper gets slow response.
+		sscanf(argv[7], "%f", &minstagetpr);	//minimum true positive rate : 
+		sscanf(argv[8], "%f", &maxstagefpr);	//maximum false positive rate : 0.5 is maximum because a random guess possibility is 0.5.
+							//A weak classifier should be better than or equal to a random guess. the fp objects will go to the next stage
+		sscanf(argv[9], "%d", &maxnumtreesperstage);	//a tree is a weak classifier, a stage, en emsemble, is a strong classiffier with combining trees
 
-		dst = argv[10];	//
+		dst = argv[10];	//detector d in the file
 	}
 	else
 	{
