@@ -284,8 +284,9 @@ int load_rtree_from_file(rtree* t, FILE* f)
 }
 
 /*
-split the training sample set into two subsets by the attribute/feature "tcode" which is a two-pixel pair to compare
-After the split, calculate the wmse of the two subsets.
+split the training sample set into two subsets by the attribute/feature stored in "tcode"
+which is a two-pixel pair array to compare.
+Calculate the wmse of the two subset after the split by a specific feature (a two pixel intensity comparison).
 refer to section 2.1 of the paper.
 http://forum.biotrump.com/viewtopic.php?f=8&t=326
 Please also refer to BRIEF to generate random 2 pixel pairs.
@@ -306,29 +307,39 @@ float get_split_error(int tcode, float tvals[], int rs[], int cs[], int srs[], i
 
 	double wmse0, wmse1;
 
+	//init vars
 	//http://forum.biotrump.com/viewtopic.php?f=8&t=326
 	wsum = wsum0 = wsum1 = wtvalsum0 = wtvalsum1 = wtvalsumsqr0 = wtvalsumsqr1 = 0.0;
-
-	for(i=0; i<indsnum; ++i)//for all training sample images
+	/*Weighted Average:
+	Sum(Wi*Vi)/Sum(Wi)
+	*/
+	for(i=0; i<indsnum; ++i)//for all (positive + negative )training sample images
 	{
+		/*TODO:
+		c= bintest?1:0;
+			wsum[c] += ws[inds[i]];	//sum up weight of cluster c images
+			wtvalsum[c] += ws[inds[i]]*tvals[inds[i]];//sum up weighted  of ground truths in cluster c
+			wtvalsumsqr[c] += ws[inds[i]]*SQR(tvals[inds[i]]);
+		*/
 		if( bintest(tcode, rs[inds[i]], cs[inds[i]], srs[inds[i]], scs[inds[i]], pixelss[inds[i]], nrowss[inds[i]], ncolss[inds[i]], ldims[inds[i]]) )
-		{//cluster/group 1
+		{//the image is in cluster/group 1
 			wsum1 += ws[inds[i]];//sum up weight of cluster 1 images
-			wtvalsum1 += ws[inds[i]]*tvals[inds[i]];//calcualte weighted average of ground truths in C1
+			wtvalsum1 += ws[inds[i]]*tvals[inds[i]];//sum up weighted  of ground truths in C1
 			wtvalsumsqr1 += ws[inds[i]]*SQR(tvals[inds[i]]);
 		}
 		else
-		{//cluster/group 0
+		{//the image is in cluster/group 0
 			wsum0 += ws[inds[i]];//sum up weight of cluster 0 images
-			wtvalsum0 += ws[inds[i]]*tvals[inds[i]];//calcualte weighted average of ground truths in C0
+			wtvalsum0 += ws[inds[i]]*tvals[inds[i]];//sum up weighted  of ground truths in C0
 			wtvalsumsqr0 += ws[inds[i]]*SQR(tvals[inds[i]]);
 		}
 
 		wsum += ws[inds[i]];//Sum up all weights of the training sample images. each sample has its weight.
 	}
+	// ??? wsum == (wsum1+ wsum0)
 
 	//??? This formula doesn't seem to match section 2.1 WMSE.
-	wmse0 = wtvalsumsqr0 - SQR(wtvalsum0)/wsum0;
+	wmse0 = wtvalsumsqr0 - SQR(wtvalsum0)/wsum0;//??? why divided by wsum0???
 	wmse1 = wtvalsumsqr1 - SQR(wtvalsum1)/wsum1;
 
 	//
