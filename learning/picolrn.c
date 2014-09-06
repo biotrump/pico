@@ -38,7 +38,7 @@
 	- <RID> file contents:
 		- a 32-bit signed integer w (image width)
 		- a 32-bit signed integer h (image height)
-		- an array of w*h unsigned bytes representing pixel intensities
+		- an array,pixels[], of w*h unsigned bytes representing pixel intensities
 */
 
 int loadrid(uint8_t* pixels[], int* nrows, int* ncols, const char* path)
@@ -572,10 +572,10 @@ int load_object_samples(const char* folder)
 	if(!list)
 		return 0;
 
-	//
+	//number of object sample
 	numos = 0;
 
-	while(fscanf(list, "%s", buffer) == 1) // read image name
+	while(fscanf(list, "%s", buffer) == 1) // read an image file name
 	{
 		char fullpath[1024];
 
@@ -591,9 +591,13 @@ int load_object_samples(const char* folder)
 			return 0;
 		}
 
-		// load image
+		// load rid image into memory, opixels[]
 		sprintf(fullpath, "%s/%s", folder, buffer);
-		//raw intensity data :rid
+		/*raw intensity data :rid
+		nrows : rid's rows
+		ncols : rid's cols
+		opixels : 8 bit grey data loaded
+		*/
 		if(!loadrid(&opixels, &nrows, &ncols, fullpath))
 			return 0;
 
@@ -612,14 +616,14 @@ int load_object_samples(const char* folder)
 			if(fscanf(list, "%f %f %f", &r, &c, &s) != 3)
 				return 0;
 
-			//
+			//object 
 			ors[numos] = r;
 			ocs[numos] = c;
 			oss[numos] = s;
 
-			opixelss[numos] = opixels;
-			onrowss[numos] = nrows;
-			oncolss[numos] = ncols;
+			opixelss[numos] = opixels;//8 bit raw intensity data
+			onrowss[numos] = nrows;	//image rows
+			oncolss[numos] = ncols;	//image cols
 
 			//total object samples are loaded.
 			++numos;
@@ -1246,7 +1250,7 @@ int main(int argc, char* argv[])
 		//
 		odetector.numstages = 0;//init
 
-		//detector d
+		//detector d is saved to file
 		if(!save_to_file(argv[3]))
 			return 0;
 
