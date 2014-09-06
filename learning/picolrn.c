@@ -1297,7 +1297,7 @@ int main(int argc, char* argv[])
 
 	//only valid in append stages , ie. argc==11
 	t = getticks();
-	if(!load_object_samples(objspath))//training samples : faces images
+	if(!load_object_samples(objspath))//object training samples : faces images
 	{
 		printf("cannot load object samples ... exiting ...\n");
 		return 1;
@@ -1306,7 +1306,7 @@ int main(int argc, char* argv[])
 
 	//
 	t = getticks();
-	if(!load_background_images(nonobjimgspath))//training samples : non-faces images
+	if(!load_background_images(nonobjimgspath))//non-object training samples : non-faces images
 	{//load nonfaces
 		printf("cannot load background images ... exiting ...\n");
 		return 1;
