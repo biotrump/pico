@@ -220,6 +220,7 @@ float get_rtree_output(rtree* t, int r, int c, int sr, int sc, uint8_t pixels[],
 	return t->lut[ idx - ((1<<t->depth)-1) ];
 }
 
+//a binary tree of depth, the total nodes of the rtree are 1+2+4+... 2^(depth-1)= 2^depth -1= (1<<depth) -1
 int allocate_rtree_data(rtree* t, int d)
 {
 	//
@@ -259,6 +260,12 @@ int deallocate_rtree_data(rtree* t, int d)
 	return 1;
 }
 
+/*save the regression tree
+a binary tree of depth, the total nodes are 1+2+4+... 2^(depth-1)= 2^depth -1= 1<<depth -1
+t->tcodes : tree nodes , 
+t->lut : ???
+
+*/
 int save_rtree_to_file(rtree* t, FILE* f)
 {
 	fwrite(&t->depth, sizeof(int), 1, f);
@@ -272,12 +279,12 @@ int load_rtree_from_file(rtree* t, FILE* f)
 {
 	int d;
 
-	fread(&d, sizeof(int), 1, f);
+	fread(&d, sizeof(int), 1, f);//depth
 
-	if(!allocate_rtree_data(t, d))
+	if(!allocate_rtree_data(t, d))//allocating the buffer to  store detector to ram
 		return 0;
 
-	fread(t->tcodes, sizeof(int32_t), (1<<d)-1, f);
+	fread(t->tcodes, sizeof(int32_t), (1<<d)-1, f);//read the data from a file
 	fread(t->lut, sizeof(float), 1<<d, f);
 
 	return 1;
@@ -699,6 +706,13 @@ struct
 
 } odetector;
 
+/*
+o  : static float os[MAXMAXNUMSAMPLES];
+r : global : ors[] = object row size array, 
+c : global ocs[] : object column array, 
+s : global oss[] : object size array
+
+*/
 int classify_region(float* o, float r, float c, float s, uint8_t pixels[], int nrows, int ncols, int ldim)
 {
 	int i, j;
@@ -739,6 +753,7 @@ int classify_region(float* o, float r, float c, float s, uint8_t pixels[], int n
 	return 1;
 }
 
+//save detctor to a file
 int save_to_file(char* path)
 {
 	int i, j;
@@ -754,11 +769,12 @@ int save_to_file(char* path)
 
 	fwrite(&odetector.numstages, sizeof(int), 1, f);//odetector.numstages == 0 in the detector init stage.
 
-	//
+	//iterate over all stages
 	for(i=0; i<odetector.numstages; ++i)
-	{
+	{	//the ensemble of trees in the stage
 		fwrite(&odetector.numtreess[i], sizeof(int), 1, f);
 
+		//for every regression tree in the sta
 		for(j=0; j<odetector.numtreess[i]; ++j)
 			save_rtree_to_file(&odetector.rtreearrays[i][j], f);
 
@@ -770,6 +786,7 @@ int save_to_file(char* path)
 	return 1;
 }
 
+//load a detctor from a file, d.
 int load_from_file(char* path)
 {
 	int i, j;
@@ -959,6 +976,17 @@ int learn_new_stage(int stageidx, int tdepth, float mintpr, float maxfpr, int ma
 
 /*
 numos : total object samples loaded
+
+the following are init before invoking sample_training_data.
+#define MAXMAXNUMSAMPLES 2*MAXNUMOS
+static float rs[MAXMAXNUMSAMPLES];
+static float cs[MAXMAXNUMSAMPLES];
+static float ss[MAXMAXNUMSAMPLES];
+static int classs[MAXMAXNUMSAMPLES];
+static uint8_t* pixelss[MAXMAXNUMSAMPLES];
+static int nrowss[MAXMAXNUMSAMPLES];
+static int ncolss[MAXMAXNUMSAMPLES];
+static float os[MAXMAXNUMSAMPLES];
 */
 float sample_training_data(int classs[], float rs[], float cs[], float ss[], uint8_t* pixelss[], int nrowss[], int ncolss[], float os[], int maxn, int* np, int* nn)
 {
@@ -968,7 +996,7 @@ float sample_training_data(int classs[], float rs[], float cs[], float ss[], uin
 	float etpr, efpr;
 
 	int t;
-
+	//to init the random
 	#define NUMPRNGS 1024
 	static int prngsinitialized = 0;
 	static int64_t prngs[NUMPRNGS];
@@ -986,7 +1014,7 @@ float sample_training_data(int classs[], float rs[], float cs[], float ss[], uin
 	/*
 		positive (face) object samples
 	*/
-
+	// global : ors[] = object row size array, ocs[] : object column array, oss[] : object size array
 	for(i=0; i<numos; ++i)
 		if( classify_region(&os[n], ors[i], ocs[i], oss[i], opixelss[i], onrowss[i], oncolss[i], oncolss[i])>0 )
 		{
@@ -1115,6 +1143,10 @@ sscanf(argv[8], "%f", &maxstagefpr);	//maximum false positive rate : 0.5 is maxi
 					//A weak classifier should be better than or equal to a random guess. the fp objects will go to the next stage
 sscanf(argv[6], "%d", &tdepths);	//maximum decision tree depth. deeper gets slow response.
 sscanf(argv[9], "%d", &maxnumtreesperstage);	//a tree is a weak classifier, a stage, en emsemble, is a strong classiffier with combining trees
+
+src : path to read the the detector file "d"
+dst : path to write the detector file "d"
+
 */
 int append_stages_to_odetector(char* src, char* dst, int maxnumstagestoappend, float targetfpr, float minstagetpr, float maxstagefpr, int tdepths, int maxnumtreesperstage)
 {
@@ -1139,16 +1171,16 @@ int append_stages_to_odetector(char* src, char* dst, int maxnumstagestoappend, f
 	if(!load_from_file(src))
 		return 0;
 
-	//
+	//odetector.numstages is "0" at first and then is added by the following learning append stage
 	maxnumstages = odetector.numstages + maxnumstagestoappend;
-	maxnumsamples = 2*numos;
+	maxnumsamples = 2*numos;//numos : number of object samples loaded into ram
 
-	//
+	//np : positive samples, nn : negative samples
 	np = nn = 0;
 
 	for(i=odetector.numstages; i<maxnumstages; ++i)
 	{
-		float currentfpr;
+		float currentfpr;//fpr : false positive rate
 
 		printf("--------------------------------------------------------------------\n");
 		printf("%d/%d\n", i+1, maxnumstages);
