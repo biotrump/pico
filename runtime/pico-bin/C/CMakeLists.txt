@@ -1,0 +1,33 @@
+cmake_minimum_required(VERSION 2.8)
+
+#SET(OPENCV_CPP_SAMPLES_REQUIRED_DEPS opencv_core opencv_flann opencv_imgproc
+#    opencv_highgui opencv_ml opencv_video opencv_objdetect opencv_photo opencv_nonfree
+#    opencv_features2d opencv_calib3d opencv_legacy opencv_contrib opencv_stitching opencv_videostab)
+
+PROJECT( pico-bin )
+#static linking, we have to set the package fining path to my own local opencv build.
+#otherwise it will use shared lib in /usr/local/share/openCV
+#my mozilla PC
+set(OpenCV_DIR "/home/thomas/build/misc/opencv/build")
+#acer s3 ubuntu opencv static linking build
+#set(OpenCV_DIR "/home/thomas/build/openCV/2.4.9-static")
+FIND_PACKAGE( OpenCV REQUIRED)
+
+#my mozilla PC
+set(V4L2_DIR "/home/thomas/build/misc/v4l2-lib/build")
+#FIND_PACKAGE( V4L2 REQUIRED)
+
+#openMP to avoid link error : omp_xxx error!
+# undefined reference to `GOMP_loop_dynamic_start
+find_package(OpenMP)
+if(OPENMP_FOUND)
+set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} ${OpenMP_C_FLAGS}")
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${OpenMP_CXX_FLAGS}")
+endif()
+
+ADD_EXECUTABLE( pico-bin
+	pico-bin.c
+	)
+
+#dynamic or static link
+TARGET_LINK_LIBRARIES( pico-bin ${OpenCV_LIBS} "${V4L2_DIR}/libv4l2-lib.a" )
