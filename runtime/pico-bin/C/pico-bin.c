@@ -18,13 +18,14 @@
  */
 
 #include <stdio.h>
-
+#include <sys/time.h> 
 //#include <cv.h>
 //#include <highgui.h>
 
 #include "opencv2/objdetect/objdetect.hpp"
 #include "opencv2/highgui/highgui.hpp"
 #include "opencv2/imgproc/imgproc.hpp"
+#include "capture-v4l2.h"
 //#define _ROTATION_INVARIANT_DETECTION_
 
 /*
@@ -67,6 +68,22 @@
 
 int minsize = MINSIZE;
 
+int preset_videofmt(CvCapture* capture)
+{
+	//disabling AWB.
+	int camfd = cvGetCamFD(capture);	//C API added by Thomas Tsai in openCV 2.4.9.x
+	printf("AWB=%d\n",GetAutoWhiteBalance(camfd));
+	SetAutoWhiteBalance(camfd,0);
+	printf("AWB=%d\n",GetAutoWhiteBalance(camfd));
+
+	getVideoFMT(camfd);
+	//YUYV
+	
+	//640*480
+	
+	//15fps
+}
+
 void process_image(IplImage* frame, int draw, int print)
 {
 	int i;
@@ -76,6 +93,10 @@ void process_image(IplImage* frame, int draw, int print)
 
 	int ndetections;
 	float qs[MAXNDETECTIONS], rs[MAXNDETECTIONS], cs[MAXNDETECTIONS], ss[MAXNDETECTIONS];
+
+	static struct timeval t1;
+	struct timeval t2;
+    unsigned int e;
 
 	static IplImage* gray = 0;
 
@@ -99,6 +120,8 @@ void process_image(IplImage* frame, int draw, int print)
 	ncols = gray->width;
 	ldim = gray->widthStep;
 
+	struct timeval pt1, pt2;
+	gettimeofday(&pt1, NULL);
 	// actually, all the smart stuff happens here
 #ifndef _ROTATION_INVARIANT_DETECTION_
 	ndetections = find_objects(0.0f, rs, cs, ss, qs, MAXNDETECTIONS, appfinder, pixels, nrows, ncols, ldim, SCALEFACTOR, STRIDEFACTOR, minsize, MIN(nrows, ncols), 1);
@@ -115,13 +138,44 @@ void process_image(IplImage* frame, int draw, int print)
 		}
 	}
 #endif
-
+	gettimeofday(&pt2, NULL);
+	uint64_t ut2 = (pt2.tv_sec * 1000000) + pt2.tv_usec;
+	uint64_t ut1 = (pt1.tv_sec * 1000000) + pt1.tv_usec;
+	printf("\npt=%u us\n", ut2-ut1);
+	
 	// if the flag is set, draw each detection
-	if(draw)
-		for(i=0; i<ndetections; ++i)
-			if(qs[i]>=QCUTOFF) // check the confidence threshold
-				cvCircle(frame, cvPoint(cs[i], rs[i]), ss[i]/2, CV_RGB(255, 0, 0), 4, 8, 0); // we draw circles here since height-to-width ratio of the detected face regions is 1.0f
+	if(draw){
+		//frame per ms
+		gettimeofday(&t2, NULL);				
+		uint64_t mt2 = (t2.tv_sec * 1000) + t2.tv_usec/1000;
+		uint64_t mt1 = (t1.tv_sec * 1000) + t1.tv_usec/1000;
+		e = mt2 - mt1;
+		//printf("\nt1=(%d-%d), t2=(%d-%d) , e=%lums\n", t1.tv_sec, t1.tv_usec, t2.tv_sec, t2.tv_usec, e);
+		printf("fps=%3.1f e=%3lums,\n", 1000.0/e, e);
+		t1 = t2;
 
+		for(i=0; i<ndetections; ++i){
+			if(qs[i]>=QCUTOFF){ // check the confidence threshold
+				//void cvCircle(CvArr* img, CvPoint center, int radius, CvScalar color, int thickness=1, int line_type=8, int shift=0 )
+				//cvCircle(frame, cvPoint(cs[i], rs[i]), ss[i]/2, CV_RGB(255, 0, 0), 4, 8, 0); // we draw circles here since height-to-width ratio of the detected face regions is 1.0f			
+
+				/*orginal face ROI : (x-D/2, y-D/2) - (x+D/2, y+D/2)
+				  get rid of top hair area of the face : D/5
+				  The ROI to send depedning on the ROI area. If the area changes, the ratio should be changed to
+				  cover the most of skin area.
+				*/
+				int xoff,yoff1, yoff2, d;			
+				d = (int)ss[i];
+				xoff = d*0.3;
+				yoff2 = yoff1 = d>>1;
+				yoff1 -= d/4;
+				//hair
+				cvRectangle(frame, cvPoint(cs[i]- xoff, rs[i]- (d>>1)), cvPoint(cs[i]+ xoff, rs[i]-yoff1), CV_RGB(255, 0, 0), 4, 8, 0); 
+				//face raw trace region which is smaller than face ROI.
+				cvRectangle(frame, cvPoint(cs[i]-xoff, rs[i]-yoff1), cvPoint(cs[i]+xoff, rs[i]+yoff2), CV_RGB(0, 255, 0), 4, 8, 0);    	    
+			}
+		}
+	}
 	// if the flag is set, print the results to standard output
 	if(print)
 	{
@@ -150,12 +204,8 @@ void process_webcam_frames()
 		printf("Cannot initialize video capture!\n");
 		return;
 	}
-
-	//disabling AWB.
-	camfd = cvGetCamFD(capture);	//C API added by Thomas Tsai in openCV 2.4.9.x
-	printf("AWB=%d\n",GetAutoWhiteBalance(camfd));
-	SetAutoWhiteBalance(camfd,0);
-	printf("AWB=%d\n",GetAutoWhiteBalance(camfd));
+	preset_videofmt(capture);
+	
 	// start the main loop in which we'll process webcam output
 	framecopy = 0;
 	stop = 0;
@@ -203,6 +253,7 @@ int main(int argc, char* argv[])
 	if(argc==1)
 	{
 		printf("Copyright (c) 2013, Nenad Markus\n");
+		printf("Copyright (c) 2014, Revised by Thomas Tsai\n");		
 		printf("All rights reserved.\n\n");
 
 		process_webcam_frames();
@@ -210,6 +261,7 @@ int main(int argc, char* argv[])
 	else if(argc==2)
 	{
 		printf("Copyright (c) 2013, Nenad Markus\n");
+		printf("Copyright (c) 2014, Revised by Thomas Tsai\n");		
 		printf("All rights reserved.\n\n");
 
 		sscanf(argv[1], "%d", &minsize);

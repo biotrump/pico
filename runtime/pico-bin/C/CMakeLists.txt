@@ -14,8 +14,10 @@ set(OpenCV_DIR "/home/thomas/build/misc/opencv/build")
 FIND_PACKAGE( OpenCV REQUIRED)
 
 #my mozilla PC
-set(V4L2_DIR "/home/thomas/build/misc/v4l2-lib/build")
+set(V4L2_DIR "/home/thomas/build/misc/v4l2-lib")
 #FIND_PACKAGE( V4L2 REQUIRED)
+
+include_directories(${V4L2_DIR})
 
 #openMP to avoid link error : omp_xxx error!
 # undefined reference to `GOMP_loop_dynamic_start
@@ -30,4 +32,4 @@ ADD_EXECUTABLE( pico-bin
 	)
 
 #dynamic or static link
-TARGET_LINK_LIBRARIES( pico-bin ${OpenCV_LIBS} "${V4L2_DIR}/libv4l2-lib.a" )
+TARGET_LINK_LIBRARIES( pico-bin ${OpenCV_LIBS} "${V4L2_DIR}/build/libv4l2-lib.a" )
