@@ -18,7 +18,8 @@
  */
 
 #include <stdio.h>
-#include <sys/time.h> 
+#include <time.h> //!!!don't use "sys/time.h" for C 
+#include <sys/stat.h>
 //#include <cv.h>
 //#include <highgui.h>
 
@@ -62,6 +63,10 @@
 #define MAXNDETECTIONS 10	//2048 is too many
 #endif
 
+#define	ROI_BORDERW	(4)
+#define	ROI_WIDTH	(160)
+#define	ROI_HEIGHT	(160)
+
 /*
 	
 */
@@ -82,6 +87,103 @@ int preset_videofmt(CvCapture* capture)
 	//640*480
 	
 	//15fps
+}
+
+IplImage* cvGetSubImage(IplImage *img1, CvRect roi)
+{
+	/* load image */
+	//IplImage *img1 = cvLoadImage("elvita.jpg", 1);
+
+	/* sets the Region of Interest
+	   Note that the rectangle area has to be __INSIDE__ the image */
+	//cvSetImageROI(img1, cvRect(10, 15, 150, 250));
+	cvSetImageROI(img1,roi);
+	/* create destination image
+	   Note that cvGetSize will return the width and the height of ROI */
+	IplImage *img2 = cvCreateImage(cvGetSize(img1),
+		                           img1->depth,
+		                           img1->nChannels);
+
+	/* copy subimage */
+	cvCopy(img1, img2, NULL);
+
+	/* always reset the Region of Interest */
+	cvResetImageROI(img1);
+	
+}
+
+inline void cvFreeSubImage(IplImage **img)
+{
+	/* release img2 when you don't need it any more.*/
+	cvReleaseImage(img);
+}
+
+/*
+save roi to a file
+*/
+FILE *store_roi(int reset, IplImage *img, CvRect roi)
+{
+	static int no;
+	static struct timeval t0;
+	static char subdir[80];
+	static uint64_t mt0=0;
+	static FILE *flist=NULL;
+	struct timeval t1;
+	uint64_t mt1;
+	unsigned int e;
+	char fstr[256];
+	
+	
+	printf("store_roi (%d,%d,%d,%d)\n",roi.x,roi.y,roi.width,roi.height);
+	
+	if(reset) no=0;
+	
+	if(!no){
+		//init
+		struct stat s;
+		struct timeval  tv;
+	   	struct tm *tm0;
+		gettimeofday(&tv, NULL);
+    	if((tm0 = localtime(&tv.tv_sec)) == NULL){
+    		perror("localtime error!\n");
+    		return NULL;
+    	}
+   		strftime (subdir, 80, "%m%d%H%M%S", tm0);
+		printf("subdir:[%s] %s\n", subdir, asctime(tm0));
+		if (stat(subdir, &s) == -1) {
+			if(mkdir(subdir, 0722)){
+				printf("folder %s create failed.\n", subdir);
+				return NULL;
+			}
+		}
+		gettimeofday(&t0, NULL);
+		mt0 = (t0.tv_sec * 1000) + t0.tv_usec/1000;
+		//create a file list.txt
+		if(flist) fclose(flist);
+		sprintf(fstr, "%s/list.txt",subdir);
+		flist=fopen(fstr,"w");
+		if(flist == NULL){
+			printf("%s error\n",fstr);
+			return NULL;
+		}
+	}
+	gettimeofday(&t1, NULL);
+	mt1 = (t1.tv_sec * 1000) + t1.tv_usec/1000;
+	e = mt1 - mt0;
+	printf("mt0=%lu, mt1=%lu, e=%u\n", mt0, mt1, e);
+	//file name : f%04u_ticks.bmp
+	sprintf(fstr, "%s/f%04u-%08u.bmp",subdir,no,e);
+	printf("storing:%s\n",fstr);
+	/* sets the Region of Interest
+	   Note that the rectangle area has to be __INSIDE__ the image */
+	cvSetImageROI(img, roi);
+	cvSaveImage(fstr,img, 0);
+	fprintf(flist, "f%04u-%08u.bmp\n",no,e);
+	/* always reset the Region of Interest */
+	cvResetImageROI(img);
+	no++;
+	//append the file name to the list.txt
+	return flist;
 }
 
 void process_image(IplImage* frame, int draw, int print)
@@ -120,8 +222,6 @@ void process_image(IplImage* frame, int draw, int print)
 	ncols = gray->width;
 	ldim = gray->widthStep;
 
-	struct timeval pt1, pt2;
-	gettimeofday(&pt1, NULL);
 	// actually, all the smart stuff happens here
 #ifndef _ROTATION_INVARIANT_DETECTION_
 	ndetections = find_objects(0.0f, rs, cs, ss, qs, MAXNDETECTIONS, appfinder, pixels, nrows, ncols, ldim, SCALEFACTOR, STRIDEFACTOR, minsize, MIN(nrows, ncols), 1);
@@ -138,10 +238,6 @@ void process_image(IplImage* frame, int draw, int print)
 		}
 	}
 #endif
-	gettimeofday(&pt2, NULL);
-	uint64_t ut2 = (pt2.tv_sec * 1000000) + pt2.tv_usec;
-	uint64_t ut1 = (pt1.tv_sec * 1000000) + pt1.tv_usec;
-	printf("\npt=%u us\n", ut2-ut1);
 	
 	// if the flag is set, draw each detection
 	if(draw){
@@ -151,7 +247,7 @@ void process_image(IplImage* frame, int draw, int print)
 		uint64_t mt1 = (t1.tv_sec * 1000) + t1.tv_usec/1000;
 		e = mt2 - mt1;
 		//printf("\nt1=(%d-%d), t2=(%d-%d) , e=%lums\n", t1.tv_sec, t1.tv_usec, t2.tv_sec, t2.tv_usec, e);
-		printf("fps=%3.1f e=%3lums,\n", 1000.0/e, e);
+		printf("fps=%3.1f e=%3ums,\n", 1000.0/e, e);
 		t1 = t2;
 
 		for(i=0; i<ndetections; ++i){
@@ -185,16 +281,18 @@ void process_image(IplImage* frame, int draw, int print)
 	}
 }
 
-void process_webcam_frames()
+void process_webcam_frames(void)
 {
 	CvCapture* capture;
 
 	IplImage* frame;
 	IplImage* framecopy;
+	int save_roi=0;
 
 	int stop;
 	int camfd;
-	
+	struct timeval pt1, pt2;
+	uint64_t ut2,ut1;
 	const char* windowname = "--------------------";
 
 	// try to initialize video capture from the default webcam
@@ -211,9 +309,22 @@ void process_webcam_frames()
 	stop = 0;
 	while(!stop)
 	{
+		static FILE *file=NULL;
+		gettimeofday(&pt1, NULL);
+		ut1 = (pt1.tv_sec * 1000000) + pt1.tv_usec;
+		
 		// wait 5 miliseconds
-		int key = cvWaitKey(5);
-
+		int key = cvWaitKey(2);
+		if(key == 's'){
+			save_roi=1;
+			printf("save_roi=1\n");	
+		}else if(key == 'e'){
+			save_roi=0;
+			if(file)
+				fclose(file);
+			file=NULL;
+			printf("save_roi=0\n");
+		}
 		// retrieve a pointer to the image acquired from the webcam
 		if(!cvGrabFrame(capture))
 			break;
@@ -224,23 +335,51 @@ void process_webcam_frames()
 			stop = 1;
 		else
 		{
+			CvRect roi,sroi;
 			// we mustn't tamper with internal OpenCV buffers and that's the reason why we're making a copy of the current frame
+			//framecopy = cvCloneImage(frame);
 			if(!framecopy)
 				framecopy = cvCreateImage(cvSize(frame->width, frame->height), frame->depth, frame->nChannels);
 			cvCopy(frame, framecopy, 0);
-			//framecopy = cvCloneImage(frame);
-				
+
 			// webcam outputs mirrored frames (at least on my machines); you can safely comment out this line if you find it unnecessary
 			//cvFlip(framecopy, framecopy, 1);
 
 			// all the smart stuff happens in the following function
-			process_image(framecopy, 1, 0);
+			//process_image(framecopy, 1, 0);
 
+			//predefined ROI (2w/5,2h/5) - (2.5W/4, 2.5h/4)
+			roi.x = (frame->width - ROI_BORDERW*2 - ROI_WIDTH)/2;
+			roi.y = (frame->height - ROI_BORDERW*2 - ROI_HEIGHT)/2;
+			roi.width = ROI_WIDTH + ROI_BORDERW*2;
+			roi.height = ROI_HEIGHT + ROI_BORDERW*2 ;
+			/*
+			roi.x = frame->width*1.8/5.0;
+			roi.y = frame->height*1.0/5.0;
+			roi.width = frame->width*1.4/5.0;
+			roi.height = frame->height*2.25/5.0;
+			*/
+			sroi=roi;
+			sroi.x += (ROI_BORDERW);
+			sroi.y += (ROI_BORDERW);
+			sroi.width = ROI_WIDTH;
+			sroi.height = ROI_HEIGHT;
+			printf(" roi=%d %d %d %d\n", roi.x, roi.y, roi.width,roi.height);
+			printf("sroi=%d %d %d %d\n", sroi.x, sroi.y, sroi.width,sroi.height);
+			cvRectangle(framecopy, cvPoint(roi.x, roi.y), 
+						cvPoint(roi.x+roi.width, roi.y+roi.height), CV_RGB(255, 0, 0), ROI_BORDERW,8, 0);
+			//printf("save_roi=[%d]\n",save_roi );
+			if(save_roi)
+				file=store_roi(0, framecopy, sroi);
 			// display the image to the user
 			cvShowImage(windowname, framecopy);
+		
+			gettimeofday(&pt2, NULL);
+			ut2 = (pt2.tv_sec * 1000000) + pt2.tv_usec;	
+			printf("\npt=%lu us, fps=%.1f\n", ut2-ut1, 1000000.0/(ut2-ut1));
 		}
 	}
-
+exit:
 	// cleanup
 	cvReleaseImage(&framecopy);
 	cvReleaseCapture(&capture);
@@ -249,62 +388,8 @@ void process_webcam_frames()
 
 int main(int argc, char* argv[])
 {
-	IplImage* img = 0;
 
-	if(argc==1)
-	{
-		printf("Copyright (c) 2013, Nenad Markus\n");
-		printf("Copyright (c) 2014, Revised by Thomas Tsai\n");		
-		printf("All rights reserved.\n\n");
-
-		process_webcam_frames();
-	}
-	else if(argc==2)
-	{
-		printf("Copyright (c) 2013, Nenad Markus\n");
-		printf("Copyright (c) 2014, Revised by Thomas Tsai\n");		
-		printf("All rights reserved.\n\n");
-
-		sscanf(argv[1], "%d", &minsize);
-
-		process_webcam_frames();
-	}
-	else if(argc==3)
-	{
-		sscanf(argv[1], "%d", &minsize);
-
-		img = cvLoadImage(argv[2], CV_LOAD_IMAGE_COLOR);
-		if(!img)
-		{
-			printf("Cannot load image!\n");
-			return 1;
-		}
-
-		process_image(img, 0, 1);
-
-		cvReleaseImage(&img);
-	}
-	else if(argc==4)
-	{
-		sscanf(argv[1], "%d", &minsize);
-
-		img = cvLoadImage(argv[2], CV_LOAD_IMAGE_COLOR);
-		if(!img)
-		{
-			printf("Cannot load image!\n");
-			return 1;
-		}
-
-		process_image(img, 1, 0);
-
-		//
-		cvSaveImage(argv[3], img, 0);
-
-		//
-		cvReleaseImage(&img);
-	}
-	else
-		return 1;
+	process_webcam_frames();
 
 	return 0;
 }
