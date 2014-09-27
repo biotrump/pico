@@ -132,12 +132,12 @@ FILE *store_roi(int reset, IplImage *img, CvRect roi)
 	uint64_t mt1;
 	unsigned int e;
 	char fstr[256];
-	
+	int i,j;
+	float rs=0.0,r=0.0,g=0.0,b=0.0;
 	
 	printf("store_roi (%d,%d,%d,%d)\n",roi.x,roi.y,roi.width,roi.height);
 	
 	if(reset) no=0;
-	
 	if(!no){
 		//init
 		struct stat s;
@@ -166,23 +166,50 @@ FILE *store_roi(int reset, IplImage *img, CvRect roi)
 			printf("%s error\n",fstr);
 			return NULL;
 		}
+		printf("The IplImage Size is : %d\n",sizeof(IplImage));
+		printf("The nSize            is : %d\n",img->nSize);
+		printf("The width           is : %d\n",img->width);
+		printf("The height          is : %d\n",img->height);
+		printf("The nChannels     is : %d\n",img->nChannels);
+		printf("The depth           is : %d\n",img->depth);
+		printf("The widthStep     is : %d\n",img->widthStep);
+		printf("The imageSize     is : %d\n",img->imageSize);
+		printf("The dataOrder     is : %d\n",img->dataOrder);
+		printf("The origin           is : %d\n",img->origin);
+		printf("The align            is : %d\n",img->align);
 	}
 	gettimeofday(&t1, NULL);
 	mt1 = (t1.tv_sec * 1000) + t1.tv_usec/1000;
 	e = mt1 - mt0;
-	printf("mt0=%lu, mt1=%lu, e=%u\n", mt0, mt1, e);
+	//printf("mt0=%lu, mt1=%lu, e=%u\n", mt0, mt1, e);
 	//file name : f%04u_ticks.bmp
 	sprintf(fstr, "%s/f%04u-%08u.bmp",subdir,no,e);
+	
 	printf("storing:%s\n",fstr);
 	/* sets the Region of Interest
 	   Note that the rectangle area has to be __INSIDE__ the image */
 	cvSetImageROI(img, roi);
 	cvSaveImage(fstr,img, 0);
-	fprintf(flist, "f%04u-%08u.bmp\n",no,e);
+
+	for(i=roi.y;i< (roi.y+roi.height);i++)
+    {
+        for(j=roi.x*img->nChannels;j< (roi.x + roi.width) * img->nChannels;j+=img->nChannels)
+        {
+            b += (unsigned char)img->imageData[i*img->widthStep+j];
+            g += (unsigned char)img->imageData[i*img->widthStep+j+1];
+            r += (unsigned char)img->imageData[i*img->widthStep+j+2];
+        }
+    }
+    rs=(roi.width*roi.height);
+    //update the bmp file name to the list.txt
+	//printf("rs=%.1f, bgr=%.1f %.1f,%.1f %.1f,%.1f %.1f\n",rs, b,b/rs, g,g/rs, r,r/rs);
+	fprintf(flist, "f%04u-%08u.bmp %.1f %.1f %.1f\n",no,e,b/rs, g/rs, r/rs);
+
 	/* always reset the Region of Interest */
 	cvResetImageROI(img);
+
 	no++;
-	//append the file name to the list.txt
+
 	return flist;
 }
 
@@ -281,7 +308,7 @@ void process_image(IplImage* frame, int draw, int print)
 	}
 }
 
-void process_webcam_frames(void)
+void process_webcam_frames(int idx)
 {
 	CvCapture* capture;
 
@@ -296,7 +323,7 @@ void process_webcam_frames(void)
 	const char* windowname = "--------------------";
 
 	// try to initialize video capture from the default webcam
-	capture = cvCaptureFromCAM(0);
+	capture = cvCaptureFromCAM(idx);
 	if(!capture)
 	{
 		printf("Cannot initialize video capture!\n");
@@ -310,6 +337,7 @@ void process_webcam_frames(void)
 	while(!stop)
 	{
 		static FILE *file=NULL;
+		//start time to process
 		gettimeofday(&pt1, NULL);
 		ut1 = (pt1.tv_sec * 1000000) + pt1.tv_usec;
 		
@@ -364,8 +392,8 @@ void process_webcam_frames(void)
 			sroi.y += (ROI_BORDERW);
 			sroi.width = ROI_WIDTH;
 			sroi.height = ROI_HEIGHT;
-			printf(" roi=%d %d %d %d\n", roi.x, roi.y, roi.width,roi.height);
-			printf("sroi=%d %d %d %d\n", sroi.x, sroi.y, sroi.width,sroi.height);
+			//printf(" roi=%d %d %d %d\n", roi.x, roi.y, roi.width,roi.height);
+			//printf("sroi=%d %d %d %d\n", sroi.x, sroi.y, sroi.width,sroi.height);
 			cvRectangle(framecopy, cvPoint(roi.x, roi.y), 
 						cvPoint(roi.x+roi.width, roi.y+roi.height), CV_RGB(255, 0, 0), ROI_BORDERW,8, 0);
 			//printf("save_roi=[%d]\n",save_roi );
@@ -373,7 +401,8 @@ void process_webcam_frames(void)
 				file=store_roi(0, framecopy, sroi);
 			// display the image to the user
 			cvShowImage(windowname, framecopy);
-		
+			
+			//processing is done
 			gettimeofday(&pt2, NULL);
 			ut2 = (pt2.tv_sec * 1000000) + pt2.tv_usec;	
 			printf("\npt=%lu us, fps=%.1f\n", ut2-ut1, 1000000.0/(ut2-ut1));
@@ -388,8 +417,11 @@ exit:
 
 int main(int argc, char* argv[])
 {
-
-	process_webcam_frames();
+	int i=0;
+	if(argc == 2)
+		sscanf(argv[1], "%d", &i);//camera index from 0
+	printf("cam%d:\n",i);
+	process_webcam_frames(i);
 
 	return 0;
 }
