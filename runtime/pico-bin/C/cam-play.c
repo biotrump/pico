@@ -190,7 +190,10 @@ FILE *store_roi(int reset, IplImage *img, CvRect roi)
 	   Note that the rectangle area has to be __INSIDE__ the image */
 	cvSetImageROI(img, roi);
 	cvSaveImage(fstr,img, 0);
-
+	/* always reset the Region of Interest */
+	cvResetImageROI(img);
+	
+	/* averaging ROI's pixel*/
 	for(i=roi.y;i< (roi.y+roi.height);i++)
     {
         for(j=roi.x*img->nChannels;j< (roi.x + roi.width) * img->nChannels;j+=img->nChannels)
@@ -203,10 +206,7 @@ FILE *store_roi(int reset, IplImage *img, CvRect roi)
     rs=(roi.width*roi.height);
     //update the bmp file name to the list.txt
 	//printf("rs=%.1f, bgr=%.1f %.1f,%.1f %.1f,%.1f %.1f\n",rs, b,b/rs, g,g/rs, r,r/rs);
-	fprintf(flist, "f%04u-%08u.bmp %.1f %.1f %.1f\n",no,e,b/rs, g/rs, r/rs);
-
-	/* always reset the Region of Interest */
-	cvResetImageROI(img);
+	fprintf(flist, "f%04u-%08u.bmp %.3f %.3f %.3f\n",no,e,b/rs, g/rs, r/rs);
 
 	no++;
 
@@ -319,7 +319,8 @@ void process_webcam_frames(int idx)
 	int stop;
 	int camfd;
 	struct timeval pt1, pt2;
-	uint64_t ut2,ut1;
+	static uint64_t ut1;
+	uint64_t ut2;
 	const char* windowname = "--------------------";
 
 	// try to initialize video capture from the default webcam
@@ -338,8 +339,8 @@ void process_webcam_frames(int idx)
 	{
 		static FILE *file=NULL;
 		//start time to process
-		gettimeofday(&pt1, NULL);
-		ut1 = (pt1.tv_sec * 1000000) + pt1.tv_usec;
+		//gettimeofday(&pt1, NULL);
+		//ut1 = (pt1.tv_sec * 1000000) + pt1.tv_usec;
 		
 		// wait 5 miliseconds
 		int key = cvWaitKey(2);
@@ -357,7 +358,15 @@ void process_webcam_frames(int idx)
 		if(!cvGrabFrame(capture))
 			break;
 		frame = cvRetrieveFrame(capture, 1);
-
+		//processing is done
+		gettimeofday(&pt2, NULL);
+		ut2 = (pt2.tv_sec * 1000000) + pt2.tv_usec;
+		if(ut1 == 0){
+			ut1 = ut2;
+		}else if(ut2 > ut1){
+			printf("\npt=%lu us, fps=%.1f\n", ut2-ut1, 1000000.0/(ut2-ut1));
+			ut1=ut2;
+		}	
 		// we terminate the loop if we don't get any data from the webcam or the user has pressed 'q'
 		if(!frame || key=='q')
 			stop = 1;
@@ -400,12 +409,7 @@ void process_webcam_frames(int idx)
 			if(save_roi)
 				file=store_roi(0, framecopy, sroi);
 			// display the image to the user
-			cvShowImage(windowname, framecopy);
-			
-			//processing is done
-			gettimeofday(&pt2, NULL);
-			ut2 = (pt2.tv_sec * 1000000) + pt2.tv_usec;	
-			printf("\npt=%lu us, fps=%.1f\n", ut2-ut1, 1000000.0/(ut2-ut1));
+			cvShowImage(windowname, framecopy);			
 		}
 	}
 exit:
