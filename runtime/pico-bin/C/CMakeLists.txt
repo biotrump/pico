@@ -4,7 +4,7 @@ cmake_minimum_required(VERSION 2.8)
 #    opencv_highgui opencv_ml opencv_video opencv_objdetect opencv_photo opencv_nonfree
 #    opencv_features2d opencv_calib3d opencv_legacy opencv_contrib opencv_stitching opencv_videostab)
 
-PROJECT( cam-play C )
+PROJECT( cam-play)
 #static linking, we have to set the package fining path to my own local opencv build.
 #otherwise it will use shared lib in /usr/local/share/openCV
 #my mozilla PC
