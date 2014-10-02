@@ -10,7 +10,9 @@ PROJECT( pico )
 #my mozilla PC
 #set(OpenCV_DIR "/home/thomas/build/misc/opencv/build")
 #acer s3 ubuntu opencv static linking build
-set(OpenCV_DIR "/home/thomas/build/openCV/2.4.9-static")
+#set(OpenCV_DIR "/home/thomas/build/openCV/2.4.9-static")
+#shou PC
+set(OpenCV_DIR "/home/thomas/build/biotrump-cv/out/openCV/2.4.9.x-static")
 FIND_PACKAGE( OpenCV REQUIRED)
 
 #openMP to avoid link error : omp_xxx error!
