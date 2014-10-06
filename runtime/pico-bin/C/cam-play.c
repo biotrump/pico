@@ -22,6 +22,8 @@
 #include <sys/stat.h>
 //#include <cv.h>
 //#include <highgui.h>
+#include <errno.h>
+#include <fcntl.h>
 
 #include "opencv2/objdetect/objdetect.hpp"
 #include "opencv2/highgui/highgui.hpp"
@@ -73,14 +75,14 @@
 
 int minsize = MINSIZE;
 
-int preset_videofmt(CvCapture* capture)
+int preset_videofmt(int camfd)
 {
 	//disabling AWB.
-	int camfd = cvGetCamFD(capture);	//C API added by Thomas Tsai in openCV 2.4.9.x
+	//printf("fd=%d\n",camfd);
 	printf("AWB=%d\n",GetAutoWhiteBalance(camfd));
 	SetAutoWhiteBalance(camfd,0);
 	printf("AWB=%d\n",GetAutoWhiteBalance(camfd));
-
+	setVideoFMT(camfd,V4L2_PIX_FMT_YUYV);
 	getVideoFMT(camfd);
 	//YUYV
 	
@@ -315,7 +317,6 @@ void process_webcam_frames(int idx)
 	IplImage* frame;
 	IplImage* framecopy;
 	int save_roi=0;
-
 	int stop;
 	int camfd;
 	struct timeval pt1, pt2;
@@ -330,8 +331,17 @@ void process_webcam_frames(int idx)
 		printf("Cannot initialize video capture!\n");
 		return;
 	}
-	preset_videofmt(capture);
-	
+	camfd = cvGetCamFD(capture);
+	preset_videofmt(camfd);
+//	camfd = open("/dev/video1", O_RDWR);
+	printf("fd=%d\n",camfd);
+	GetAutoExposure(camfd);
+	SetAutoExposure(camfd, /*V4L2_EXPOSURE_MANUAL ,*/ V4L2_EXPOSURE_APERTURE_PRIORITY  );
+	SetAutoExposureAutoPriority(camfd,0);
+	printf("AutoPriority=%d\n",GetAutoExposureAutoPriority(camfd));
+	GetManualExposure(camfd);
+
+//	SetManualExposure(camfd, 150);
 	// start the main loop in which we'll process webcam output
 	framecopy = 0;
 	stop = 0;
