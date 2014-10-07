@@ -75,18 +75,47 @@
 
 int minsize = MINSIZE;
 
-int preset_videofmt(int camfd)
+/* openCV cvCaptureFromCAM will lock the /dev/videoxxx, so the VIDIOC_S_FMT 
+can't work.
+Set the capture format before openCV open the camera device.
+*/
+int preset_videofmt(int idx)
 {
+	struct v4l2_format fmt;
+	int camfd;
+	char dev[20]={0};
+	sprintf(dev,"/dev/video%d",idx);
+	camfd = open(dev, O_RDWR);
+	if (camfd == -1){
+        perror("Opening video device");
+        return -1;
+	}
+	print_caps(camfd);
+	EnumVideoFMT(camfd);
+	GetVideoFMT(camfd, &fmt);
+//    fmt.fmt.pix.width = 640;
+//    fmt.fmt.pix.height = 480;	
+	fmt.fmt.pix.pixelformat = V4L2_PIX_FMT_YUYV; //V4L2_PIX_FMT_MJPEG;
+//	fmt.fmt.pix.bytesperline = 1280;
+//	fmt.fmt.pix.sizeimage = 614400;
+//	fmt.fmt.pix.colorspace=0;
+//	fmt.fmt.pix.field = V4L2_FIELD_NONE;
+	SetVideoFMT(camfd, fmt);
+	GetVideoFMT(camfd, &fmt);
+	close(camfd);
+	//15fps
+}
+
+int CamParameter(int camfd)
+{
+	struct v4l2_format fmt;
 	//disabling AWB.
 	//printf("fd=%d\n",camfd);
+//	print_caps(camfd);
 	printf("AWB=%d\n",GetAutoWhiteBalance(camfd));
-	SetAutoWhiteBalance(camfd,0);
+//	SetAutoWhiteBalance(camfd,0);
 	printf("AWB=%d\n",GetAutoWhiteBalance(camfd));
-	setVideoFMT(camfd,V4L2_PIX_FMT_YUYV);
-	getVideoFMT(camfd);
-	//YUYV
-	
-	//640*480
+//	EnumVideoFMT(camfd);
 	
 	//15fps
 }
@@ -322,8 +351,10 @@ void process_webcam_frames(int idx)
 	struct timeval pt1, pt2;
 	static uint64_t ut1;
 	uint64_t ut2;
-	const char* windowname = "--------------------";
+	const char* windowname = "webcam";
 
+	//cvCaptureFromCAM will lock camera device, so do VIDIOC_S_FMT before openCV.
+	preset_videofmt(idx);
 	// try to initialize video capture from the default webcam
 	capture = cvCaptureFromCAM(idx);
 	if(!capture)
@@ -332,7 +363,7 @@ void process_webcam_frames(int idx)
 		return;
 	}
 	camfd = cvGetCamFD(capture);
-	preset_videofmt(camfd);
+	CamParameter(camfd);
 //	camfd = open("/dev/video1", O_RDWR);
 	printf("fd=%d\n",camfd);
 	GetAutoExposure(camfd);
