@@ -4,6 +4,7 @@ cmake_minimum_required(VERSION 2.8)
 #    opencv_highgui opencv_ml opencv_video opencv_objdetect opencv_photo opencv_nonfree
 #    opencv_features2d opencv_calib3d opencv_legacy opencv_contrib opencv_stitching opencv_videostab)
 
+
 PROJECT( cam-play)
 #static linking, we have to set the package fining path to my own local opencv build.
 #otherwise it will use shared lib in /usr/local/share/openCV
@@ -34,3 +35,14 @@ ADD_EXECUTABLE( cam-play
 
 #dynamic or static link
 TARGET_LINK_LIBRARIES( cam-play ${OpenCV_LIBS} "/home/thomas/build/biotrump-cv/out/v4l2-lib/libv4l2-lib.a" )
+
+#
+ADD_EXECUTABLE( v4l2-cap
+	v4l2-cap.c
+	)
+
+#dynamic or static link
+TARGET_LINK_LIBRARIES( v4l2-cap ${OpenCV_LIBS} "/home/thomas/build/biotrump-cv/out/v4l2-lib/libv4l2-lib.a" )
+
+
+

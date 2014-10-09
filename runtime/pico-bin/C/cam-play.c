@@ -18,7 +18,7 @@
  */
 
 #include <stdio.h>
-#include <time.h> //!!!don't use "sys/time.h" for C 
+#include <time.h> //!!!don't use "sys/time.h" for C
 #include <sys/stat.h>
 //#include <cv.h>
 //#include <highgui.h>
@@ -32,7 +32,7 @@
 //#define _ROTATION_INVARIANT_DETECTION_
 
 /*
-	
+
 */
 
 #ifndef _ROTATION_INVARIANT_DETECTION_
@@ -44,6 +44,9 @@
 /*
 	object detection parameters
 */
+#define	 FRAME_WIDTH	(640)
+#define FRAME_HEIGHT	(480)
+#define FRAME_FPS		(25)
 
 #ifndef QCUTOFF
 #define QCUTOFF 3.0f
@@ -70,18 +73,20 @@
 #define	ROI_HEIGHT	(160)
 
 /*
-	
+
 */
 
 int minsize = MINSIZE;
 
-/* openCV cvCaptureFromCAM will lock the /dev/videoxxx, so the VIDIOC_S_FMT 
+/* openCV cvCaptureFromCAM will lock the /dev/videoxxx, so the VIDIOC_S_FMT
 can't work.
 Set the capture format before openCV open the camera device.
 */
 int preset_videofmt(int idx)
 {
 	struct v4l2_format fmt;
+	struct v4l2_frmivalenum frmival;
+	uint32_t fps;
 	int camfd;
 	char dev[20]={0};
 	sprintf(dev,"/dev/video%d",idx);
@@ -94,7 +99,7 @@ int preset_videofmt(int idx)
 	EnumVideoFMT(camfd);
 	GetVideoFMT(camfd, &fmt);
 //    fmt.fmt.pix.width = 640;
-//    fmt.fmt.pix.height = 480;	
+//    fmt.fmt.pix.height = 480;
 	fmt.fmt.pix.pixelformat = V4L2_PIX_FMT_YUYV; //V4L2_PIX_FMT_MJPEG;
 //	fmt.fmt.pix.bytesperline = 1280;
 //	fmt.fmt.pix.sizeimage = 614400;
@@ -102,6 +107,15 @@ int preset_videofmt(int idx)
 //	fmt.fmt.pix.field = V4L2_FIELD_NONE;
 	SetVideoFMT(camfd, fmt);
 	GetVideoFMT(camfd, &fmt);
+	EnumFrameRate(camfd, V4L2_PIX_FMT_YUYV);
+
+	memset(&frmival,0,sizeof(frmival));
+    frmival.pixel_format = V4L2_PIX_FMT_YUYV;
+    frmival.width = FRAME_WIDTH;
+    frmival.height = FRAME_HEIGHT;
+	fps = GetFPSParam(camfd, 9.0, &frmival);
+	SetFPSParam(camfd, fps);
+
 	close(camfd);
 	//15fps
 }
@@ -116,8 +130,22 @@ int CamParameter(int camfd)
 //	SetAutoWhiteBalance(camfd,0);
 	printf("AWB=%d\n",GetAutoWhiteBalance(camfd));
 //	EnumVideoFMT(camfd);
-	
+
 	//15fps
+}
+
+int postset_cam(int camfd)
+{
+
+	CamParameter(camfd);
+	printf("fd=%d\n",camfd);
+	GetAutoExposure(camfd);
+	SetAutoExposure(camfd, /*V4L2_EXPOSURE_MANUAL ,*/ V4L2_EXPOSURE_APERTURE_PRIORITY  );
+	SetAutoExposureAutoPriority(camfd,0);
+	printf("AutoPriority=%d\n",GetAutoExposureAutoPriority(camfd));
+//	PrintFrameInterval(camfd, frmival.pixel_format, frmival.width, frmival.height);
+	SetManualExposure(camfd, 140);
+	GetManualExposure(camfd);
 }
 
 IplImage* cvGetSubImage(IplImage *img1, CvRect roi)
@@ -140,7 +168,7 @@ IplImage* cvGetSubImage(IplImage *img1, CvRect roi)
 
 	/* always reset the Region of Interest */
 	cvResetImageROI(img1);
-	
+
 }
 
 inline void cvFreeSubImage(IplImage **img)
@@ -165,9 +193,9 @@ FILE *store_roi(int reset, IplImage *img, CvRect roi)
 	char fstr[256];
 	int i,j;
 	float rs=0.0,r=0.0,g=0.0,b=0.0;
-	
+
 	printf("store_roi (%d,%d,%d,%d)\n",roi.x,roi.y,roi.width,roi.height);
-	
+
 	if(reset) no=0;
 	if(!no){
 		//init
@@ -215,7 +243,7 @@ FILE *store_roi(int reset, IplImage *img, CvRect roi)
 	//printf("mt0=%lu, mt1=%lu, e=%u\n", mt0, mt1, e);
 	//file name : f%04u_ticks.bmp
 	sprintf(fstr, "%s/f%04u-%08u.bmp",subdir,no,e);
-	
+
 	printf("storing:%s\n",fstr);
 	/* sets the Region of Interest
 	   Note that the rectangle area has to be __INSIDE__ the image */
@@ -223,7 +251,7 @@ FILE *store_roi(int reset, IplImage *img, CvRect roi)
 	cvSaveImage(fstr,img, 0);
 	/* always reset the Region of Interest */
 	cvResetImageROI(img);
-	
+
 	/* averaging ROI's pixel*/
 	for(i=roi.y;i< (roi.y+roi.height);i++)
     {
@@ -296,11 +324,11 @@ void process_image(IplImage* frame, int draw, int print)
 		}
 	}
 #endif
-	
+
 	// if the flag is set, draw each detection
 	if(draw){
 		//frame per ms
-		gettimeofday(&t2, NULL);				
+		gettimeofday(&t2, NULL);
 		uint64_t mt2 = (t2.tv_sec * 1000) + t2.tv_usec/1000;
 		uint64_t mt1 = (t1.tv_sec * 1000) + t1.tv_usec/1000;
 		e = mt2 - mt1;
@@ -311,22 +339,22 @@ void process_image(IplImage* frame, int draw, int print)
 		for(i=0; i<ndetections; ++i){
 			if(qs[i]>=QCUTOFF){ // check the confidence threshold
 				//void cvCircle(CvArr* img, CvPoint center, int radius, CvScalar color, int thickness=1, int line_type=8, int shift=0 )
-				//cvCircle(frame, cvPoint(cs[i], rs[i]), ss[i]/2, CV_RGB(255, 0, 0), 4, 8, 0); // we draw circles here since height-to-width ratio of the detected face regions is 1.0f			
+				//cvCircle(frame, cvPoint(cs[i], rs[i]), ss[i]/2, CV_RGB(255, 0, 0), 4, 8, 0); // we draw circles here since height-to-width ratio of the detected face regions is 1.0f
 
 				/*orginal face ROI : (x-D/2, y-D/2) - (x+D/2, y+D/2)
 				  get rid of top hair area of the face : D/5
 				  The ROI to send depedning on the ROI area. If the area changes, the ratio should be changed to
 				  cover the most of skin area.
 				*/
-				int xoff,yoff1, yoff2, d;			
+				int xoff,yoff1, yoff2, d;
 				d = (int)ss[i];
 				xoff = d*0.3;
 				yoff2 = yoff1 = d>>1;
 				yoff1 -= d/4;
 				//hair
-				cvRectangle(frame, cvPoint(cs[i]- xoff, rs[i]- (d>>1)), cvPoint(cs[i]+ xoff, rs[i]-yoff1), CV_RGB(255, 0, 0), 4, 8, 0); 
+				cvRectangle(frame, cvPoint(cs[i]- xoff, rs[i]- (d>>1)), cvPoint(cs[i]+ xoff, rs[i]-yoff1), CV_RGB(255, 0, 0), 4, 8, 0);
 				//face raw trace region which is smaller than face ROI.
-				cvRectangle(frame, cvPoint(cs[i]-xoff, rs[i]-yoff1), cvPoint(cs[i]+xoff, rs[i]+yoff2), CV_RGB(0, 255, 0), 4, 8, 0);    	    
+				cvRectangle(frame, cvPoint(cs[i]-xoff, rs[i]-yoff1), cvPoint(cs[i]+xoff, rs[i]+yoff2), CV_RGB(0, 255, 0), 4, 8, 0);
 			}
 		}
 	}
@@ -341,15 +369,16 @@ void process_image(IplImage* frame, int draw, int print)
 
 void process_webcam_frames(int idx)
 {
+	static uint64_t ut1;
 	CvCapture* capture;
-
-	IplImage* frame;
-	IplImage* framecopy;
+	struct v4l2_frmivalenum frmival;
+	uint32_t fps;
+	IplImage* frame=NULL;
+	IplImage* framecopy=NULL;
 	int save_roi=0;
 	int stop;
 	int camfd;
-	struct timeval pt1, pt2;
-	static uint64_t ut1;
+	struct timeval pt2;
 	uint64_t ut2;
 	const char* windowname = "webcam";
 
@@ -363,38 +392,16 @@ void process_webcam_frames(int idx)
 		return;
 	}
 	camfd = cvGetCamFD(capture);
-	CamParameter(camfd);
-//	camfd = open("/dev/video1", O_RDWR);
-	printf("fd=%d\n",camfd);
-	GetAutoExposure(camfd);
-	SetAutoExposure(camfd, /*V4L2_EXPOSURE_MANUAL ,*/ V4L2_EXPOSURE_APERTURE_PRIORITY  );
-	SetAutoExposureAutoPriority(camfd,0);
-	printf("AutoPriority=%d\n",GetAutoExposureAutoPriority(camfd));
-	GetManualExposure(camfd);
+	postset_cam(camfd);
 
-//	SetManualExposure(camfd, 150);
 	// start the main loop in which we'll process webcam output
 	framecopy = 0;
 	stop = 0;
+	cvNamedWindow(windowname,CV_WINDOW_AUTOSIZE);
 	while(!stop)
 	{
 		static FILE *file=NULL;
-		//start time to process
-		//gettimeofday(&pt1, NULL);
-		//ut1 = (pt1.tv_sec * 1000000) + pt1.tv_usec;
-		
-		// wait 5 miliseconds
-		int key = cvWaitKey(2);
-		if(key == 's'){
-			save_roi=1;
-			printf("save_roi=1\n");	
-		}else if(key == 'e'){
-			save_roi=0;
-			if(file)
-				fclose(file);
-			file=NULL;
-			printf("save_roi=0\n");
-		}
+
 		// retrieve a pointer to the image acquired from the webcam
 		if(!cvGrabFrame(capture))
 			break;
@@ -402,12 +409,25 @@ void process_webcam_frames(int idx)
 		//processing is done
 		gettimeofday(&pt2, NULL);
 		ut2 = (pt2.tv_sec * 1000000) + pt2.tv_usec;
-		if(ut1 == 0){
-			ut1 = ut2;
-		}else if(ut2 > ut1){
-			printf("\npt=%lu us, fps=%.1f\n", ut2-ut1, 1000000.0/(ut2-ut1));
-			ut1=ut2;
-		}	
+		if( ut1 && (ut2 > ut1)){
+//			printf("\npt=%lu us, fps=%.1f\n", ut2-ut1, 1000000.0/(ut2-ut1));
+			printf("fps=%.0f\n", 1000000.0/(ut2-ut1));
+		}
+		ut1=ut2;
+
+		// wait 5 miliseconds
+		int key = cvWaitKey(1);
+		if(key == 's'){
+			save_roi=1;
+			printf("save_roi=1\n");
+		}else if(key == 'e'){
+			save_roi=0;
+			if(file)
+				fclose(file);
+			file=NULL;
+			printf("save_roi=0\n");
+		}
+
 		// we terminate the loop if we don't get any data from the webcam or the user has pressed 'q'
 		if(!frame || key=='q')
 			stop = 1;
@@ -444,29 +464,55 @@ void process_webcam_frames(int idx)
 			sroi.height = ROI_HEIGHT;
 			//printf(" roi=%d %d %d %d\n", roi.x, roi.y, roi.width,roi.height);
 			//printf("sroi=%d %d %d %d\n", sroi.x, sroi.y, sroi.width,sroi.height);
-			cvRectangle(framecopy, cvPoint(roi.x, roi.y), 
+			cvRectangle(framecopy, cvPoint(roi.x, roi.y),
 						cvPoint(roi.x+roi.width, roi.y+roi.height), CV_RGB(255, 0, 0), ROI_BORDERW,8, 0);
 			//printf("save_roi=[%d]\n",save_roi );
 			if(save_roi)
 				file=store_roi(0, framecopy, sroi);
 			// display the image to the user
-			cvShowImage(windowname, framecopy);			
+			cvShowImage(windowname, framecopy);
 		}
 	}
 exit:
 	// cleanup
-	cvReleaseImage(&framecopy);
+	if(framecopy)
+		cvReleaseImage(&framecopy);
+	if(frame)
+		cvReleaseImage(&frame);
+
 	cvReleaseCapture(&capture);
 	cvDestroyWindow(windowname);
 }
 
 int main(int argc, char* argv[])
 {
-	int i=0;
+	int fd, i=0;
+	char dev[20];
 	if(argc == 2)
 		sscanf(argv[1], "%d", &i);//camera index from 0
-	printf("cam%d:\n",i);
 	process_webcam_frames(i);
+#if 0
+	preset_videofmt(i);
+	sprintf(dev,"/dev/video%d",i);
+	printf("cam%d:%s\n",i, dev);
+    fd = open(dev, O_RDWR);
+    if (fd == -1){
+		perror("Opening video device");
+        return 1;
+    }
+	postset_cam(fd);
+	init_mmap(fd);
+	while(1){
+		int key = cvWaitKey(1);
+		capture_image(fd,"windows");
+		// wait 5 miliseconds
+		if(key == 'q'){
+			break;
+		}
+	}
+#endif
+	close(fd);
 
 	return 0;
 }
+
