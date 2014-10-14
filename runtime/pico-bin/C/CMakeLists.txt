@@ -16,10 +16,15 @@ set(OpenCV_DIR "/home/thomas/build/biotrump-cv/out/openCV/2.4.9.x-static")
 FIND_PACKAGE( OpenCV REQUIRED)
 
 #my mozilla PC
-set(V4L2_DIR "/home/thomas/build/biotrump-cv/v4l2-lib")
+#set(V4L2_DIR "/home/thomas/build/biotrump-cv/v4l2-lib")
 #FIND_PACKAGE( V4L2 REQUIRED)
 
-include_directories(${V4L2_DIR})
+#$ENV{VAR} to get shell env
+set(V4L2_LIB_DIR $ENV{V4L2_LIB_DIR})
+set(V4L2_LIB_OUT $ENV{V4L2_LIB_OUT} )
+message("V4L2_LIB_DIR is ${V4L2_LIB_DIR}")
+message("V4L2_LIB_OUT is ${V4L2_LIB_OUT}")
+include_directories("${V4L2_LIB_DIR}")
 
 #openMP to avoid link error : omp_xxx error!
 # undefined reference to `GOMP_loop_dynamic_start
@@ -34,7 +39,7 @@ ADD_EXECUTABLE( cam-play
 	)
 
 #dynamic or static link
-TARGET_LINK_LIBRARIES( cam-play ${OpenCV_LIBS} "/home/thomas/build/biotrump-cv/out/v4l2-lib/libv4l2-lib.a" )
+TARGET_LINK_LIBRARIES( cam-play ${OpenCV_LIBS} ${V4L2_LIB_OUT}/libv4l2-lib.a )
 
 #
 ADD_EXECUTABLE( v4l2-cap
@@ -42,7 +47,5 @@ ADD_EXECUTABLE( v4l2-cap
 	)
 
 #dynamic or static link
-TARGET_LINK_LIBRARIES( v4l2-cap ${OpenCV_LIBS} "/home/thomas/build/biotrump-cv/out/v4l2-lib/libv4l2-lib.a" )
-
-
+TARGET_LINK_LIBRARIES( v4l2-cap ${OpenCV_LIBS} ${V4L2_LIB_OUT}/libv4l2-lib.a )
 
