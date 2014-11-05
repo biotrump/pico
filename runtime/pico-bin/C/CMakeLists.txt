@@ -29,18 +29,27 @@ include_directories("${V4L2_INC}")
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${PICO_OUT}/bin)
 #set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${V4L2_CAPTURE_OUT})
 #set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY ${V4L2_LIB_OUT})
+#message("DSP_ICA_DIR ::${DSP_ICA_DIR}")
+find_path(DSP_ICA_INCLUDES dsp-ica.h
+			HINTS ${DSP_ICA_DIR} )
+message(">>> INC::${DSP_ICA_INCLUDES}" )
+include_directories("${DSP_ICA_INCLUDES}")
 
 ADD_EXECUTABLE( cam-play
 	cam-play.c
 	)
-
+#message(">>> DSP_ICA_LIBS::${DSP_ICA_LIBS}" )
 #dynamic or static link
-TARGET_LINK_LIBRARIES( cam-play ${OpenCV_LIBS} ${V4L2_LIB_OUT}/libv4l2-lib.a )
+TARGET_LINK_LIBRARIES( cam-play ${OpenCV_LIBS}
+	${V4L2_LIB_OUT}/libv4l2-lib.a
+	${DSP_ICA_LIBS}/libdsp-ica.a)
 
 #
 ADD_EXECUTABLE( v4l2-cap
 	v4l2-cap.c
 	)
-
+#message(">>> DSP_ICA_LIBS::${DSP_ICA_LIBS}" )
 #dynamic or static link
-TARGET_LINK_LIBRARIES( v4l2-cap ${OpenCV_LIBS} ${V4L2_LIB_OUT}/libv4l2-lib.a )
+TARGET_LINK_LIBRARIES( v4l2-cap ${OpenCV_LIBS}
+	${V4L2_LIB_OUT}/libv4l2-lib.a
+	${DSP_ICA_LIBS}/libdsp-ica.a)
