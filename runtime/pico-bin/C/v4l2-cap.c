@@ -28,20 +28,21 @@
 #include <opencv2/objdetect/objdetect.hpp>
 #include <opencv2/highgui/highgui.hpp>
 #include <opencv2/imgproc/imgproc.hpp>
+#include "dsp-ica.h"
 
 #define FORCED_WIDTH  640
 #define FORCED_HEIGHT 480
 #define FORCED_FORMAT V4L2_PIX_FMT_YUYV	//V4L2_PIX_FMT_MJPEG
 #define FORCED_FIELD  V4L2_FIELD_ANY
+#define	ROI_BORDERW		(4)
+#define	ROI_WIDTH		(160)
+#define	ROI_HEIGHT		(180)
+#define ROI_Y_OFFSET	(90)
 
 /*http://forum.processing.org/one/topic/webcam-with-stable-framerate-25fps-on-high-resolution.html
 The stable fps can only occur in the low frame rate. Higher fps>15 may not be stable.
 */
 #define FORCED_FPS		(9)	//fps9 or fps10 are the most stable fps.
-
-static int verbose = 0;
-#define pr_debug(fmt, arg...) \
-	if (verbose) fprintf(stderr, fmt, ##arg)
 
 #define CLEAR(x) memset(&(x), 0, sizeof(x))
 
@@ -56,20 +57,41 @@ struct buffer {
 	size_t  length;
 };
 
+static PCircularQueue cq,cqLong;
+
 static char            *dev_name;
 static enum io_method   io = IO_METHOD_MMAP;
 static int              fd = -1;
 struct buffer          *buffers;
 static unsigned int     n_buffers;
-static int		out_buf;
+static int				out_buf;
 static int              force_format;
 static int              frame_count = 0;
 
 static char *windowname="v4l2 capture";
 
+static void deinitCQs(void)
+{
+	pr_debug(DSP_INFO,"+%s:\n", __func__);
+
+	if(cqLong) cqDeinit(cqLong);
+	cqLong=NULL;
+	if(cq) cqDeinit(cq);
+	cq=NULL;
+}
+
+static void initCQs(void)
+{
+	pr_debug(DSP_INFO,"+%s:\n", __func__);
+	deinitCQs();
+	cq=cqInit(getSampleWindow() * getFPS());
+	cqLong=cqInit(getMaxSampleTime() * getFPS());
+}
+
 static void errno_exit(const char *s)
 {
-	fprintf(stderr, "%s error %d, %s\n", s, errno, strerror(errno));
+	pr_debug(DSP_ERROR, "+%s:%s error %d, %s\n", __func__, s, errno, strerror(errno));
+	deinitCQs();
 	exit(EXIT_FAILURE);
 }
 
@@ -111,12 +133,14 @@ int GetAutoWhiteBalance(int fd)
 		perror("getting V4L2_CID_AUTO_WHITE_BALANCE");
 	}
 //	printf("V4L2_CID_AUTO_WHITE_BALANCE = 0x%x\n",ctrl.value );
+	pr_debug(DSP_DEBUG,"-%s:%d\n", __func__, ctrl.value);
 	return ctrl.value;
 }
 
 int SetAutoWhiteBalance(int fd, int enable)
 {
 	struct v4l2_control ctrl ={0};
+	pr_debug(DSP_DEBUG,"%s:\n", __func__);
 	ctrl.id = V4L2_CID_AUTO_WHITE_BALANCE;
 	ctrl.value = enable;
 	if (-1 == xioctl(fd, VIDIOC_S_CTRL, &ctrl)){
@@ -579,7 +603,8 @@ int extra_cam_setting(int camfd)
     frmival.height = FORCED_HEIGHT;
 	fps = GetFPSParam(camfd, (double)FORCED_FPS, &frmival);
 	SetFPSParam(camfd, fps);
-
+	SetAutoWhiteBalance(camfd, 0);
+#if 0
 	GetAutoExposure(camfd);
 	SetAutoExposure(camfd, /*V4L2_EXPOSURE_MANUAL ,*/ V4L2_EXPOSURE_APERTURE_PRIORITY  );
 	SetAutoExposureAutoPriority(camfd,0);
@@ -588,140 +613,73 @@ int extra_cam_setting(int camfd)
 //	SetAutoExposure(camfd, V4L2_EXPOSURE_MANUAL);
 	SetManualExposure(camfd, 110);
 	GetManualExposure(camfd);
+#endif
 }
 
-/*http://www.jayrambhia.com/blog/capture-v4l2
-Step 7: Store data in OpenCV datatype
-    IplImage* frame;
-    CvMat cvmat = cvMat(480, 640, CV_8UC3, (void*)buffer);
-    frame = cvDecodeImage(&cvmat, 1);
-    cvNamedWindow("window",CV_WINDOW_AUTOSIZE);
-    cvShowImage("window", frame);
-*/
-
-/* convert from 4:2:2 YUYV interlaced to RGB24 */
-/* based on ccvt_yuyv_bgr32() from camstream */
-/* opencv/modules/highgui/src/cap_v4l.cpp */
-#define SAT(c) \
-        if (c & (~255)) { if (c < 0) c = 0; else c = 255; }
-
-//TODO : this can't be optimized by SIMD, openMP, opencl???
-static void
-yuyv_to_rgb24 (int width, int height, unsigned char *src, unsigned char *dst)
+void spectraAnalysis(CvScalar rgb)
 {
-	unsigned char *s;
-	unsigned char *d;
-	int l, c;
-	int r, g, b, cr, cg, cb, y1, y2;
-
-	pr_debug("%s: called!, width=%d, height=%d\n", __func__, width, height);
-
-	l = height;
-	s = src;
-	d = dst;
-	while (l--) {
-		c = width >> 1;
-		while (c--) {
-			 y1 = *s++;
-			 cb = ((*s - 128) * 454) >> 8;
-			 cg = (*s++ - 128) * 88;
-			 y2 = *s++;
-			 cr = ((*s - 128) * 359) >> 8;
-			 cg = (cg + (*s++ - 128) * 183) >> 8;
-
-			 r = y1 + cr;
-			 b = y1 + cb;
-			 g = y1 - cg;
-			 SAT(r);
-			 SAT(g);
-			 SAT(b);
-
-			*d++ = b;
-			*d++ = g;
-			*d++ = r;
-
-			 r = y2 + cr;
-			 b = y2 + cb;
-			 g = y2 - cg;
-			 SAT(r);
-			 SAT(g);
-			 SAT(b);
-
-			*d++ = b;
-			*d++ = g;
-			*d++ = r;
+	int i;
+	pr_debug(DSP_INFO,"+%s:\n", __func__);
+	//PCircularQueue pq[]={cq, cqLong};
+	PCircularQueue pq[]={cq};
+	int win_samples[]={getSampleWindow()*getFPS(), getMaxSampleTime() * getFPS()};
+	//insert to cq and process it
+	for(i = 0; i < sizeof(pq)/sizeof(PCircularQueue); i ++){
+		if(cqInsert(pq[i], (PElemType)&rgb)){
+			pr_debug(DSP_DEBUG,"!!!!queue[%d] is full and is wating...\n", i);
+		}else{
+			int j;
+			int steps=getStepping()*getFPS();
+			pr_debug(DSP_INFO,"cq[%d]: %d\n",i, cqUsedSize(pq[i]));
+			if(cqFull(pq[i])){
+				int row,col;
+				CvMat *rawTrace;
+				//read queue to rawtrace
+				pr_debug(DSP_DEBUG,"###cq[%d] is full : %d, process it\n", i,
+						 cqUsedSize(pq[i]));
+				pr_debug(DSP_INFO,"N=%d\n", win_samples[i]);
+				//3 rows (BGR) * N
+				rawTrace = cvCreateMat(MAX_CHANNELS, win_samples[i], RAW_ELEMENT_TYPE);
+				if(rawTrace){
+					CvScalar spectra[MAX_SPECTRAS];//(magnitude, freq, channel)
+					int n;
+					cqClone(pq[i], rawTrace);
+					n=rawTraceSpectra(rawTrace, spectra);
+					//clear out steps from cq and waits for when cq is full.
+					for(j=0;j<steps;j++) cqDelete(pq[i], NULL);
+					pr_debug(DSP_INFO,"[%d] frames are cleared out: %d left\n", steps,
+							cqUsedSize(pq[i]));
+					for(j=0; j<n;j++) {
+						pr_debug(DSP_DEBUG,"\n***[%d: %.1fbpm (%.3fhz), mag=%.3f,"
+								 "ch=%.0f]\n\n",
+								 j, spectra[j].val[1]*60.0,spectra[j].val[1],
+								spectra[j].val[0],spectra[j].val[2]);
+					}
+					cvReleaseMat(&rawTrace);
+				}
+			}
 		}
 	}
-}
 
-/*
-LSB : b,g,r
-*/
-static void rgb888_mean(int width, int height, const unsigned char *src, double *dst)
-{
-	int w;
-	double area=(double)(height * width);
-	pr_debug("%s: called!, width=%d, height=%d\n", __func__, width, height);
-
-	dst[0]=dst[1]=dst[2]=0.0;
-	while (height--) {
-		w = width;
-		while (w--) {
-			dst[0] += (double)(*src++);	//B
-			dst[1] += (double)(*src++);	//G
-			dst[2] += (double)(*src++);	//R
-		}
-	}
-	dst[0] /= area;
-	dst[1] /= area;
-	dst[2] /= area;
-	printf("(B,G,R)=(%.4f,%.4f,%.4f)\n", dst[0],dst[1],dst[2]);
-}
-
-/*
-roi mean
-*/
-void roi_mean(IplImage *img, CvRect roi, double *m)
-{
-	int i,j;
-	float ra=0.0,r=0.0,g=0.0,b=0.0;
-
-	pr_debug("%s: called!, (%d,%d,%d,%d)\n", __func__, roi.x,roi.y,roi.width,roi.height);
-
-	/* averaging ROI's pixel*/
-	for(i=roi.y;i< (roi.y+roi.height);i++)
-    {
-        for(j=roi.x*img->nChannels;j< (roi.x + roi.width) * img->nChannels;j+=img->nChannels)
-        {
-            b += (unsigned char)img->imageData[i*img->widthStep+j];
-            g += (unsigned char)img->imageData[i*img->widthStep+j+1];
-            r += (unsigned char)img->imageData[i*img->widthStep+j+2];
-        }
-    }
-    ra=(roi.width*roi.height);
-	m[0]=b/ra;
-	m[1]=g/ra;
-	m[2]=r/ra;
-	printf("(b,g,r)=%.4f %.4f %.4f\n",m[0],m[1],m[2]);
 }
 
 /*
 p is a YUYV 422 format, so 640x480x16bits = 61440 bytes
 */
-static void process_image(const void *p, int size)
+static CvScalar processFrame(const void *p, int size)
 {
-	static IplImage* framecopy;
+	IplImage* framecopy;
 	static uint64_t ut1;
 	uint64_t ut2;
 	struct timeval pt2;
-	pr_debug("%s: called!, size=0x%x\n", __func__, size);
+	pr_debug(DSP_INFO,"%s: size=0x%x\n", __func__, size);
 
 //	if (out_buf)
 //		fwrite(p, size, 1, stdout);
 
 #if 0 	//V4L2_PIX_FMT_MJPEG
     IplImage* frame;
-    CvMat cvmat = cvMat(480, 640, CV_8UC3, (void*)p);//MJPEG buffer p
+    CvMat cvmat = cvMat(FORCED_HEIGHT, FORCED_WIDTH, CV_8UC3, (void*)p);//MJPEG buffer p
     frame = cvDecodeImage(&cvmat, 1);//sometimes a corrupted frame is retrieved,
     								//so frame should be checked if it's null.
 	if(frame && !framecopy){
@@ -740,39 +698,47 @@ static void process_image(const void *p, int size)
 //	cvReleaseImage(&frame);
 #else
 //V4L2_PIX_FMT_YUYV
-//	if(size < (640*480*2)){
+//	if(size < (FORCED_WIDTH*FORCED_HEIGHT*2)){
 //		printf("size too small\n");
 //		return ;
 //	}
-	CvRect sroi=cvRect(100,100,100,100);
-	framecopy = cvCreateImage(cvSize(640,480), IPL_DEPTH_8U, 3);
-	yuyv_to_rgb24(640,480, (unsigned char *)p, framecopy->imageData);
+	framecopy = cvCreateImage(cvSize(FORCED_WIDTH,FORCED_HEIGHT), IPL_DEPTH_8U, 3);
+	yuyv_to_rgb24(FORCED_WIDTH,FORCED_HEIGHT, (unsigned char *)p, framecopy->imageData);
 	double dst[3]={0.0};
-	//rgb888_mean(640, 480, framecopy->imageData, dst);
+	CvRect sroi;
+	sroi.x = (framecopy->width - ROI_WIDTH)/2 - 1;
+	sroi.y = (framecopy->height - ROI_HEIGHT)/2 - 1+ ROI_Y_OFFSET;
+	sroi.width = ROI_WIDTH;
+	sroi.height = ROI_HEIGHT ;
 	roi_mean(framecopy, sroi, dst);
+	//
+	//draw the bouding ROI on the frame
+	cvRectangle(framecopy, cvPoint(sroi.x, sroi.y),
+				cvPoint(sroi.x+sroi.width, sroi.y+sroi.height),
+				CV_RGB(255, 0, 0), ROI_BORDERW,8, 0);
    	cvShowImage(windowname, framecopy);
+	cvReleaseImage(&framecopy);
 //    cvCvtColor(frame, );
-//    CvMat cvmat = cvMat(480, 640,  CV_8UC2, (void*)p);//V4L2_PIX_FMT_YUYV, 16bits
+//    CvMat cvmat = cvMat(FORCED_HEIGHT, FORCED_WIDTH,  CV_8UC2, (void*)p);//V4L2_PIX_FMT_YUYV, 16bits
 #endif
 	gettimeofday(&pt2, NULL);
 	ut2 = (pt2.tv_sec * 1000000) + pt2.tv_usec;
 	if( ut1 && (ut2 > ut1)){
 //			printf("\npt=%lu us, fps=%.1f\n", ut2-ut1, 1000000.0/(ut2-ut1));
-		pr_debug("fps=%.0f\n", 1000000.0/(ut2-ut1));
+		pr_debug(DSP_INFO,"fps=%.0f\n", 1000000.0/(ut2-ut1));
 	}
 	ut1=ut2;
-
-//	fflush(stderr);
-//	fprintf(stderr, ".");
-//	fflush(stdout);
+	CvScalar rgb=cvScalar(dst[0],dst[1],dst[2], dst[3]);
+	return rgb;
 }
 
-static int read_frame(void)
+static int readFrame(void)
 {
 	struct v4l2_buffer buf;
 	unsigned int i;
+	CvScalar m_rgb=cvScalarAll(0.0f);
 
-	pr_debug("%s: called!\n", __func__);
+	pr_debug(DSP_INFO,"%s:\n", __func__);
 
 	switch (io) {
 	case IO_METHOD_READ:
@@ -791,7 +757,7 @@ static int read_frame(void)
 			}
 		}
 
-		process_image(buffers[0].start, buffers[0].length);
+		m_rgb=processFrame(buffers[0].start, buffers[0].length);
 		break;
 
 	case IO_METHOD_MMAP:
@@ -817,7 +783,7 @@ static int read_frame(void)
 
 		assert(buf.index < n_buffers);
 
-		process_image(buffers[buf.index].start, buf.bytesused);
+		m_rgb=processFrame(buffers[buf.index].start, buf.bytesused);
 
 		if (-1 == xioctl(fd, VIDIOC_QBUF, &buf))
 			errno_exit("VIDIOC_QBUF");
@@ -851,22 +817,25 @@ static int read_frame(void)
 
 		assert(i < n_buffers);
 
-		process_image((void *)buf.m.userptr, buf.bytesused);
+		m_rgb = processFrame((void *)buf.m.userptr, buf.bytesused);
 
 		if (-1 == xioctl(fd, VIDIOC_QBUF, &buf))
 			errno_exit("VIDIOC_QBUF");
 		break;
 	}
-
+	spectraAnalysis(m_rgb);
 	return 1;
 }
 
-static void mainloop(void)
+static void captureVideo(void)
 {
 	unsigned int count;
 	char ch;
-	pr_debug("%s: called!\n", __func__);
+	pr_debug(DSP_INFO,"%s:\n", __func__);
 
+	pr_debug(DSP_DEBUG,"win_size=%ds, fps=%d\n", getSampleWindow(),getFPS());
+
+	initCQs();
 	count = frame_count?frame_count:0xffffffff;
 	while (count-- > 0) {
 		for (;;) {
@@ -897,19 +866,20 @@ static void mainloop(void)
 			if( (ch=cvWaitKey(1)) =='q') //this waitkey pause can make CV display visible
 				goto exit;
 
-			if (read_frame())
+			if (readFrame())
 				break;
 			/* EAGAIN - continue select loop. */
 		}
 	}
 exit:;
+	deinitCQs();
 }
 
-static void stop_capturing(void)
+static void stopCapturing(void)
 {
 	enum v4l2_buf_type type;
 
-	pr_debug("%s: called!\n", __func__);
+	pr_debug(DSP_INFO,"%s:\n", __func__);
 
 	switch (io) {
 	case IO_METHOD_READ:
@@ -925,15 +895,14 @@ static void stop_capturing(void)
 	}
 }
 
-static void start_capturing(void)
+static void startCapturing(void)
 {
 	unsigned int i;
 	enum v4l2_buf_type type;
 	int err;
 
-	pr_debug("%s: called!\n", __func__);
-
-	pr_debug("\tn_buffers: %d\n", n_buffers);
+	pr_debug(DSP_INFO,"%s:\n", __func__);
+	pr_debug(DSP_INFO,"\tn_buffers: %d\n", n_buffers);
 
 	switch (io) {
 	case IO_METHOD_READ:
@@ -944,29 +913,29 @@ static void start_capturing(void)
 		for (i = 0; i < n_buffers; ++i) {
 			struct v4l2_buffer buf;
 
-			pr_debug("\ti: %d\n", i);
+			pr_debug(DSP_INFO,"\ti: %d\n", i);
 
 			CLEAR(buf);
 			buf.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
 			buf.memory = V4L2_MEMORY_MMAP;
 			buf.index = i;
 
-			pr_debug("\tbuf.index: %d\n", buf.index);
+			pr_debug(DSP_INFO,"\tbuf.index: %d\n", buf.index);
 
 			err == xioctl(fd, VIDIOC_QBUF, &buf);
-			pr_debug("\terr: %d\n", err);
+			pr_debug(DSP_INFO,"\terr: %d\n", err);
 
 			if (-1 == err)
 				errno_exit("VIDIOC_QBUF");
 
-			pr_debug("\tbuffer queued!\n");
+			pr_debug(DSP_INFO,"\tbuffer queued!\n");
 		}
 
-		pr_debug("Before STREAMON\n");
+		pr_debug(DSP_INFO,"Before STREAMON\n");
 		type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
 		if (-1 == xioctl(fd, VIDIOC_STREAMON, &type))
 			errno_exit("VIDIOC_STREAMON");
-		pr_debug("After STREAMON\n");
+		pr_debug(DSP_INFO,"After STREAMON\n");
 		break;
 
 	case IO_METHOD_USERPTR:
@@ -994,7 +963,7 @@ static void uninit_device(void)
 {
 	unsigned int i;
 
-	pr_debug("%s: called!\n", __func__);
+	pr_debug(DSP_INFO,"%s:\n", __func__);
 
 	switch (io) {
 	case IO_METHOD_READ:
@@ -1018,7 +987,7 @@ static void uninit_device(void)
 
 static void init_read(unsigned int buffer_size)
 {
-	pr_debug("%s: called!\n", __func__);
+	pr_debug(DSP_INFO,"%s:\n", __func__);
 
 	buffers = calloc(1, sizeof(*buffers));
 
@@ -1040,7 +1009,7 @@ static void init_mmap(void)
 {
 	struct v4l2_requestbuffers req;
 
-	pr_debug("%s: called!\n", __func__);
+	pr_debug(DSP_INFO,"%s:\n", __func__);
 
 	CLEAR(req);
 
@@ -1057,11 +1026,10 @@ static void init_mmap(void)
 			errno_exit("VIDIOC_REQBUFS");
 		}
 	}
-	pr_debug("\treq.count: %d\n", req.count);
-	pr_debug("\treq.type: %d\n", req.type);
-	pr_debug("\treq.memory: %d\n", req.memory);
-	pr_debug("\n");
-
+	pr_debug(DSP_INFO,"\treq.count: %d\n", req.count);
+	pr_debug(DSP_INFO,"\treq.type: %d\n", req.type);
+	pr_debug(DSP_INFO,"\treq.memory: %d\n", req.memory);
+	pr_debug(DSP_INFO,"\n");
 
 	if (req.count < 2) {
 		fprintf(stderr, "Insufficient buffer memory on %s\n",
@@ -1088,30 +1056,30 @@ static void init_mmap(void)
 		if (-1 == xioctl(fd, VIDIOC_QUERYBUF, &buf))
 			errno_exit("VIDIOC_QUERYBUF");
 
-		pr_debug("\tbuf.index: %d\n", buf.index);
-		pr_debug("\tbuf.type: %d\n", buf.type);
-		pr_debug("\tbuf.bytesused: %d\n", buf.bytesused);
-		pr_debug("\tbuf.flags: %d\n", buf.flags);
-		pr_debug("\tbuf.field: %d\n", buf.field);
-		pr_debug("\tbuf.timestamp.tv_sec: %ld\n", (long) buf.timestamp.tv_sec);
-		pr_debug("\tbuf.timestamp.tv_usec: %ld\n", (long) buf.timestamp.tv_usec);
-		pr_debug("\tbuf.timecode.type: %d\n", buf.timecode.type);
-		pr_debug("\tbuf.timecode.flags: %d\n", buf.timecode.flags);
-		pr_debug("\tbuf.timecode.frames: %d\n", buf.timecode.frames);
-		pr_debug("\tbuf.timecode.seconds: %d\n", buf.timecode.seconds);
-		pr_debug("\tbuf.timecode.minutes: %d\n", buf.timecode.minutes);
-		pr_debug("\tbuf.timecode.hours: %d\n", buf.timecode.hours);
-		pr_debug("\tbuf.timecode.userbits: %d,%d,%d,%d\n",
+		pr_debug(DSP_INFO,"\tbuf.index: %d\n", buf.index);
+		pr_debug(DSP_INFO,"\tbuf.type: %d\n", buf.type);
+		pr_debug(DSP_INFO,"\tbuf.bytesused: %d\n", buf.bytesused);
+		pr_debug(DSP_INFO,"\tbuf.flags: %d\n", buf.flags);
+		pr_debug(DSP_INFO,"\tbuf.field: %d\n", buf.field);
+		pr_debug(DSP_INFO,"\tbuf.timestamp.tv_sec: %ld\n", (long) buf.timestamp.tv_sec);
+		pr_debug(DSP_INFO,"\tbuf.timestamp.tv_usec: %ld\n", (long) buf.timestamp.tv_usec);
+		pr_debug(DSP_INFO,"\tbuf.timecode.type: %d\n", buf.timecode.type);
+		pr_debug(DSP_INFO,"\tbuf.timecode.flags: %d\n", buf.timecode.flags);
+		pr_debug(DSP_INFO,"\tbuf.timecode.frames: %d\n", buf.timecode.frames);
+		pr_debug(DSP_INFO,"\tbuf.timecode.seconds: %d\n", buf.timecode.seconds);
+		pr_debug(DSP_INFO,"\tbuf.timecode.minutes: %d\n", buf.timecode.minutes);
+		pr_debug(DSP_INFO,"\tbuf.timecode.hours: %d\n", buf.timecode.hours);
+		pr_debug(DSP_INFO,"\tbuf.timecode.userbits: %d,%d,%d,%d\n",
 				buf.timecode.userbits[0],
 				buf.timecode.userbits[1],
 				buf.timecode.userbits[2],
 				buf.timecode.userbits[3]);
-		pr_debug("\tbuf.sequence: %d\n", buf.sequence);
-		pr_debug("\tbuf.memory: %d\n", buf.memory);
-		pr_debug("\tbuf.m.offset: %d\n", buf.m.offset);
-		pr_debug("\tbuf.length: %d\n", buf.length);
-		pr_debug("\tbuf.input: %d\n", buf.input);
-		pr_debug("\n");
+		pr_debug(DSP_INFO,"\tbuf.sequence: %d\n", buf.sequence);
+		pr_debug(DSP_INFO,"\tbuf.memory: %d\n", buf.memory);
+		pr_debug(DSP_INFO,"\tbuf.m.offset: %d\n", buf.m.offset);
+		pr_debug(DSP_INFO,"\tbuf.length: %d\n", buf.length);
+		pr_debug(DSP_INFO,"\tbuf.input: %d\n", buf.input);
+		pr_debug(DSP_INFO,"\n");
 
 		buffers[n_buffers].length = buf.length;
 		buffers[n_buffers].start =
@@ -1129,8 +1097,7 @@ static void init_mmap(void)
 static void init_userp(unsigned int buffer_size)
 {
 	struct v4l2_requestbuffers req;
-
-	pr_debug("%s: called!\n", __func__);
+	pr_debug(DSP_INFO,"%s:\n", __func__);
 
 	CLEAR(req);
 
@@ -1174,7 +1141,7 @@ static void init_device(void)
 	struct v4l2_format fmt;
 	unsigned int min;
 
-	pr_debug("%s: called!\n", __func__);
+	pr_debug(DSP_INFO,"%s:\n", __func__);
 
 	if (-1 == xioctl(fd, VIDIOC_QUERYCAP, &cap)) {
 		if (EINVAL == errno) {
@@ -1186,15 +1153,15 @@ static void init_device(void)
 		}
 	}
 
-	pr_debug("\tdriver: %s\n"
+	pr_debug(DSP_INFO,"\tdriver: %s\n"
 		 "\tcard: %s \n"
 		 "\tbus_info: %s\n",
 			cap.driver, cap.card, cap.bus_info);
-	pr_debug("\tversion: %u.%u.%u\n",
+	pr_debug(DSP_INFO,"\tversion: %u.%u.%u\n",
 			(cap.version >> 16) & 0xFF,
 			(cap.version >> 8) & 0xFF,
 			cap.version & 0xFF);
-	pr_debug("\tcapabilities: 0x%08x\n", cap.capabilities);
+	pr_debug(DSP_INFO,"\tcapabilities: 0x%08x\n", cap.capabilities);
 
 	if (!(cap.capabilities & V4L2_CAP_VIDEO_CAPTURE)) {
 		fprintf(stderr, "%s is no video capture device\n",
@@ -1230,20 +1197,20 @@ static void init_device(void)
 	cropcap.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
 
 	if (0 == xioctl(fd, VIDIOC_CROPCAP, &cropcap)) {
-		pr_debug("\tcropcap.type: %d\n", cropcap.type);
-		pr_debug("\tcropcap.bounds.left: %d\n", cropcap.bounds.left);
-		pr_debug("\tcropcap.bounds.top: %d\n", cropcap.bounds.top);
-		pr_debug("\tcropcap.bounds.width: %d\n", cropcap.bounds.width);
-		pr_debug("\tcropcap.bounds.height: %d\n", cropcap.bounds.height);
+		pr_debug(DSP_INFO,"\tcropcap.type: %d\n", cropcap.type);
+		pr_debug(DSP_INFO,"\tcropcap.bounds.left: %d\n", cropcap.bounds.left);
+		pr_debug(DSP_INFO,"\tcropcap.bounds.top: %d\n", cropcap.bounds.top);
+		pr_debug(DSP_INFO,"\tcropcap.bounds.width: %d\n", cropcap.bounds.width);
+		pr_debug(DSP_INFO,"\tcropcap.bounds.height: %d\n", cropcap.bounds.height);
 
-		pr_debug("\tcropcap.defrect.left: %d\n", cropcap.defrect.left);
-		pr_debug("\tcropcap.defrect.top: %d\n", cropcap.defrect.top);
-		pr_debug("\tcropcap.defrect.width: %d\n", cropcap.defrect.width);
-		pr_debug("\tcropcap.defrect.height: %d\n", cropcap.defrect.height);
+		pr_debug(DSP_INFO,"\tcropcap.defrect.left: %d\n", cropcap.defrect.left);
+		pr_debug(DSP_INFO,"\tcropcap.defrect.top: %d\n", cropcap.defrect.top);
+		pr_debug(DSP_INFO,"\tcropcap.defrect.width: %d\n", cropcap.defrect.width);
+		pr_debug(DSP_INFO,"\tcropcap.defrect.height: %d\n", cropcap.defrect.height);
 
-		pr_debug("\tcropcap.pixelaspect.numerator: %d\n", cropcap.pixelaspect.numerator);
-		pr_debug("\tcropcap.pixelaspect.denominator: %d\n", cropcap.pixelaspect.denominator);
-		pr_debug("\n");
+		pr_debug(DSP_INFO,"\tcropcap.pixelaspect.numerator: %d\n", cropcap.pixelaspect.numerator);
+		pr_debug(DSP_INFO,"\tcropcap.pixelaspect.denominator: %d\n", cropcap.pixelaspect.denominator);
+		pr_debug(DSP_INFO,"\n");
 
 		CLEAR(crop);
 		crop.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
@@ -1256,7 +1223,7 @@ static void init_device(void)
 				break;
 			default:
 				/* Errors ignored. */
-				pr_debug("\tcropping not supported\n");
+				pr_debug(DSP_INFO,"\tcropping not supported\n");
 				break;
 			}
 		}
@@ -1274,13 +1241,13 @@ static void init_device(void)
 		fmt.fmt.pix.pixelformat = FORCED_FORMAT;
 		fmt.fmt.pix.field       = FORCED_FIELD;
 
-		pr_debug("\tfmt.fmt.pix.pixelformat: %c,%c,%c,%c\n",
+		pr_debug(DSP_INFO,"\tfmt.fmt.pix.pixelformat: %c,%c,%c,%c\n",
 				fmt.fmt.pix.pixelformat & 0xFF,
 				(fmt.fmt.pix.pixelformat >> 8) & 0xFF,
 				(fmt.fmt.pix.pixelformat >> 16) & 0xFF,
 				(fmt.fmt.pix.pixelformat >> 24) & 0xFF
 				);
-		pr_debug("\n");
+		pr_debug(DSP_INFO,"\n");
 		/*
 		This, VIDIOC_S_FMT, is one time setting, so you can NOT set twice.
 		You can't change the format while buffers are allocated.
@@ -1297,7 +1264,7 @@ static void init_device(void)
 			errno_exit("VIDIOC_G_FMT");
 
 		fmt.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
-		pr_debug("\tfmt.fmt.pix.pixelformat: %c,%c,%c,%c\n",
+		pr_debug(DSP_INFO,"\tfmt.fmt.pix.pixelformat: %c,%c,%c,%c\n",
 				fmt.fmt.pix.pixelformat & 0xFF,
 				(fmt.fmt.pix.pixelformat >> 8) & 0xFF,
 				(fmt.fmt.pix.pixelformat >> 16) & 0xFF,
@@ -1333,7 +1300,7 @@ static void init_device(void)
 
 static void close_device(void)
 {
-	pr_debug("%s: called!\n", __func__);
+	pr_debug(DSP_INFO,"%s:\n", __func__);
 
 	if (-1 == close(fd))
 		errno_exit("close");
@@ -1345,7 +1312,7 @@ static void open_device(void)
 {
 	struct stat st;
 
-	pr_debug("%s: called!\n", __func__);
+	pr_debug(DSP_INFO,"+%s:\n", __func__);
 
 	if (-1 == stat(dev_name, &st)) {
 		fprintf(stderr, "Cannot identify '%s': %d, %s\n",
@@ -1371,39 +1338,57 @@ static void usage(FILE *fp, int argc, char **argv)
 {
 	fprintf(fp,
 		 "Usage: %s [options]\n\n"
-		 "Version 1.3\n"
+		 "Version 0.6\n"
 		 "Options:\n"
-		 "-d | --device name   Video device name [%s]\n"
 		 "-h | --help          Print this message\n"
-		 "-m | --mmap          Use memory mapped buffers [default]\n"
+		 "-c | --count         Number of frames to grab [%i]\n"
+		 "-d | --device name   Video device name [%s]\n"
+		 "-e | --errorlevel    error level [%i]\n"
+		 "-i | --samplefile    raw trace sample file name\n"
+		 "-p | --mmap          Use memory mapped buffers [default]\n"
+		 "-m | --min           minimum sample period in seconds[%i]\n"
+		 "-M | --max           max sample period in seconds[%i]\n"
 		 "-r | --read          Use read() calls\n"
 		 "-u | --userp         Use application allocated buffers\n"
-		 "-o | --output        Outputs stream to stdout\n"
+		 "-O | --stdout        Outputs stream to stdout\n"
+		 "-o | --output        debug file stream to stdout\n"
+		 "-w | --window        working window in second[%i]\n"
 		 "-f | --format        Force format to 640x480 YUYV\n"
-		 "-c | --count         Number of frames to grab [%i]\n"
+		 "-F | --fps           fps [%i]\n"
+		 "-s | --steps         steps in seconds[%i]\n"
 		 "-v | --verbose       Verbose output\n"
 		 "",
-		 argv[0], dev_name, frame_count);
+		 argv[0], frame_count, dev_name, getErrorLevel(), getMinSampleTime(),
+		getMaxSampleTime(),getSampleWindow(),getFPS(),getStepping());
 }
 
-static const char short_options[] = "d:hmruofc:v";
+static const char short_options[] = "c:d:e:f:hi:m:M:o:prs:uvw:";
 
 static const struct option
 long_options[] = {
-	{ "device", required_argument, NULL, 'd' },
 	{ "help",   no_argument,       NULL, 'h' },
-	{ "mmap",   no_argument,       NULL, 'm' },
-	{ "read",   no_argument,       NULL, 'r' },
-	{ "userp",  no_argument,       NULL, 'u' },
-	{ "output", no_argument,       NULL, 'o' },
-	{ "format", no_argument,       NULL, 'f' },
 	{ "count",  required_argument, NULL, 'c' },
-	{ "verbose", no_argument,      NULL, 'v' },
+	{ "device", required_argument, NULL, 'd' },
+	{ "errorlevel", required_argument, NULL, 'e' },
+	{ "format", no_argument,       NULL, 'f' },
+	{ "fps",  		required_argument, NULL, 'F' },
+	{ "sample-file",required_argument, NULL, 'i' },
+	{ "min",		required_argument, NULL, 'm' },
+	{ "max",		required_argument, NULL, 'M' },
+	{ "output", 	required_argument, NULL, 'o' },
+	{ "stdout", 	required_argument, NULL, 'O' },
+	{ "mmap",   no_argument,       NULL, 'p' },
+	{ "read",   no_argument,       NULL, 'r' },
+	{ "step",  		required_argument, NULL, 's' },
+	{ "userp",  no_argument,       NULL, 'u' },
+	{ "verbose", 	no_argument,       NULL, 'v' },
+	{ "window",		required_argument, NULL, 'w' },
 	{ 0, 0, 0, 0 }
 };
 
-int main(int argc, char **argv)
+static int option(int argc, char **argv)
 {
+	int r=0;
 	dev_name = "/dev/video0";
 
 	for (;;) {
@@ -1419,16 +1404,38 @@ int main(int argc, char **argv)
 		switch (c) {
 		case 0: /* getopt_long() flag */
 			break;
+		case 'c':
+			errno = 0;
+			frame_count = strtol(optarg, NULL, 0);
+			if (errno)
+				errno_exit(optarg);
+			break;
 
 		case 'd':
 			dev_name = optarg;
 			break;
 
+		case 'e':
+			errno = 0;
+			setErrorLevel(strtol(optarg, NULL, 0));
+			if (errno)
+				errno_exit(optarg);
+			break;
+
+		case 'f':
+			force_format++;
+			break;
+
 		case 'h':
 			usage(stdout, argc, argv);
-			exit(EXIT_SUCCESS);
+			r=-1;
+			break;
 
-		case 'm':
+		case 'o':
+			out_buf++;
+			break;
+
+		case 'p':
 			io = IO_METHOD_MMAP;
 			break;
 
@@ -1440,46 +1447,51 @@ int main(int argc, char **argv)
 			io = IO_METHOD_USERPTR;
 			break;
 
-		case 'o':
-			out_buf++;
+		case 'v':
+			setVerbose(1);
 			break;
 
-		case 'f':
-			force_format++;
-			break;
-
-		case 'c':
+		case 'w':
 			errno = 0;
-			frame_count = strtol(optarg, NULL, 0);
+			setSampleWindow(strtol(optarg, NULL, 0));
 			if (errno)
 				errno_exit(optarg);
 			break;
 
-		case 'v':
-			verbose = 1;
-			break;
-
 		default:
 			usage(stderr, argc, argv);
-			exit(EXIT_FAILURE);
+			r=-1;
 		}
 	}
+	return r;
+}
 
+int main(int argc, char **argv)
+{
+	if(option(argc,argv)<0){
+		pr_debug(DSP_DEBUG, "Wrong args!!!\n");
+		exit(EXIT_FAILURE);
+	}
+	if(_init_dsp()){
+		pr_debug(DSP_DEBUG, "DSP init failed!!!\n");
+		exit(EXIT_FAILURE);
+	}
+	//start_logging("mylog.txt");
 	open_device();
 	init_device();
 
 	cvNamedWindow(windowname,CV_WINDOW_AUTOSIZE);
 
-	start_capturing();
-	mainloop();
-	stop_capturing();
+	startCapturing();
+	captureVideo();
+	stopCapturing();
 
 	cvDestroyWindow(windowname);
 
 	uninit_device();
 	close_device();
+	_deinit_dsp();
 
-	fprintf(stderr, "\n");
+	//fprintf(stderr, "\n");
 	return 0;
 }
-
