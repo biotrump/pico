@@ -206,24 +206,22 @@ V4L2_CID_EXPOSURE_METERING 	enum v4l2_exposure_metering
 */
 static void autoExposureType(int type)
 {
-#if 1	//__debug_log_
    	switch(type){
    	case V4L2_EXPOSURE_AUTO:
-   		printf("V4L2_EXPOSURE_AUTO[%d]\n",type);
+   		pr_debug(DSP_INFO,"V4L2_EXPOSURE_AUTO[%d]\n",type);
    		break;
    	case V4L2_EXPOSURE_MANUAL:
-   		printf("V4L2_EXPOSURE_MANUAL[%d]\n",type);
+   		pr_debug(DSP_INFO,"V4L2_EXPOSURE_MANUAL[%d]\n",type);
    		break;
    	case V4L2_EXPOSURE_SHUTTER_PRIORITY:
-   		printf("V4L2_EXPOSURE_SHUTTER_PRIORITY[%d]\n",type);
+   		pr_debug(DSP_INFO,"V4L2_EXPOSURE_SHUTTER_PRIORITY[%d]\n",type);
    		break;
    	case V4L2_EXPOSURE_APERTURE_PRIORITY:
-   		printf("V4L2_EXPOSURE_APERTURE_PRIORITY[%d]\n",type);
+   		pr_debug(DSP_INFO,"V4L2_EXPOSURE_APERTURE_PRIORITY[%d]\n",type);
    		break;
    	default:
    		perror("unknown exposure type");
    	}
-#endif
 }
 
 /*
@@ -234,7 +232,7 @@ int SetAutoExposure(int fd, int type)
 	struct v4l2_control ctrl ={0};
 	ctrl.id = V4L2_CID_EXPOSURE_AUTO;
    	ctrl.value = type;
-   	printf("SetAutoExposure=");
+   	pr_debug(DSP_INFO,"SetAutoExposure=");
    	autoExposureType(type);
    	if (-1 == xioctl(fd,VIDIOC_S_CTRL,&ctrl)) {
       perror("setting V4L2_CID_EXPOSURE_AUTO");
@@ -251,7 +249,7 @@ int GetAutoExposure(int fd)
 		perror("getting V4L2_CID_EXPOSURE_AUTO");
 		return -1;
 	}
-	printf("GetAutoExposure=");
+	pr_debug(DSP_INFO,"GetAutoExposure=");
 	autoExposureType(ctrl.value);
 	return ctrl.value;
 }
@@ -602,10 +600,14 @@ int extra_cam_setting(int camfd)
     frmival.width = FORCED_WIDTH;
     frmival.height = FORCED_HEIGHT;
 	fps = GetFPSParam(camfd, (double)FORCED_FPS, &frmival);
+    frmival.pixel_format = V4L2_PIX_FMT_YUYV;
+    frmival.width = FORCED_WIDTH;
+    frmival.height = FORCED_HEIGHT;
 	SetFPSParam(camfd, fps);
 	SetAutoWhiteBalance(camfd, 0);
+	SetAutoExposure(camfd, V4L2_EXPOSURE_AUTO);
+	SetAutoExposureAutoPriority(camfd,0);
 #if 0
-	GetAutoExposure(camfd);
 	SetAutoExposure(camfd, /*V4L2_EXPOSURE_MANUAL ,*/ V4L2_EXPOSURE_APERTURE_PRIORITY  );
 	SetAutoExposureAutoPriority(camfd,0);
 	printf("AutoPriority=%d\n",GetAutoExposureAutoPriority(camfd));
