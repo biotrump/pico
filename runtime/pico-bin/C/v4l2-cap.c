@@ -42,7 +42,7 @@
 /*http://forum.processing.org/one/topic/webcam-with-stable-framerate-25fps-on-high-resolution.html
 The stable fps can only occur in the low frame rate. Higher fps>15 may not be stable.
 */
-#define FORCED_FPS		(9)	//fps9 or fps10 are the most stable fps.
+//#define FORCED_FPS		(9)	//fps9 or fps10 are the most stable fps.
 
 #define CLEAR(x) memset(&(x), 0, sizeof(x))
 
@@ -409,8 +409,9 @@ int SetVideoFMT(int fd, struct v4l2_format fmt)
 	return 0;
 }
 
-void SetFPSParam(int fd, uint32_t fps)
+int SetFPSParam(int fd, uint32_t fps)
 {
+	double fps_new=(double)fps;
 	struct v4l2_streamparm param;
     memset(&param, 0, sizeof(param));
     param.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
@@ -422,7 +423,7 @@ void SetFPSParam(int fd, uint32_t fps)
 	}
 
 	if(param.parm.capture.timeperframe.numerator){
-		double fps_new = param.parm.capture.timeperframe.denominator
+		fps_new = param.parm.capture.timeperframe.denominator
 	                 / param.parm.capture.timeperframe.numerator;
 		if ((double)fps != fps_new) {
 			printf("unsupported frame rate [%d,%f]\n", fps, fps_new);
@@ -454,9 +455,9 @@ uint32_t GetFPSParam(int fd, double fps, struct v4l2_frmivalenum *pfrmival)
         if (pfrmival->type == V4L2_FRMIVAL_TYPE_DISCRETE){
 	    	double f;
         	f = (double)pfrmival->discrete.denominator/pfrmival->discrete.numerator;
-        	printf("[%u/%u]\n", pfrmival->discrete.denominator,
+        	pr_debug(DSP_INFO, "[%u/%u]\n", pfrmival->discrete.denominator,
         						pfrmival->discrete.numerator);
-            printf("[%dx%d] %f fps\n", pfrmival->width, pfrmival->height,f);
+            pr_debug(DSP_INFO,"[%dx%d] %f fps\n", pfrmival->width, pfrmival->height,f);
 
 			fpss[pfrmival->index]=f;
 			frmival[pfrmival->index]=*pfrmival;
@@ -464,9 +465,9 @@ uint32_t GetFPSParam(int fd, double fps, struct v4l2_frmivalenum *pfrmival)
         	double f1,f2;
         	f1 = (double)pfrmival->stepwise.max.denominator/pfrmival->stepwise.max.numerator;
         	f2 = (double)pfrmival->stepwise.min.denominator/pfrmival->stepwise.min.numerator;
-            printf("[%dx%d] [%f,%f] fps\n", pfrmival->width, pfrmival->height,f1,f2);
+            pr_debug(DSP_INFO,"[%dx%d] [%f,%f] fps\n", pfrmival->width, pfrmival->height,f1,f2);
        	}
-       	printf("idx=%d\n", pfrmival->index);
+       	pr_debug(DSP_INFO, "idx=%d\n", pfrmival->index);
        	pfrmival->index++;
     }
     /* list is in increasing order */
@@ -478,7 +479,7 @@ uint32_t GetFPSParam(int fd, double fps, struct v4l2_frmivalenum *pfrmival)
     		}
     	}
     	*pfrmival = frmival[i];
-    	printf("found[%f,%f]\n", fps, fpss[i]);
+    	pr_debug(DSP_DEBUG, "fps:request[%.1f],but set to [%.1f]\n", fps, fpss[i]);
     }
     return (uint32_t)fpss[i];
 }
@@ -599,7 +600,9 @@ int extra_cam_setting(int camfd)
     frmival.pixel_format = V4L2_PIX_FMT_YUYV;
     frmival.width = FORCED_WIDTH;
     frmival.height = FORCED_HEIGHT;
-	fps = GetFPSParam(camfd, (double)FORCED_FPS, &frmival);
+	//fps = GetFPSParam(camfd, (double)FORCED_FPS, &frmival);
+	fps = GetFPSParam(camfd, (double)getFPS(), &frmival);
+	setFPS(fps);	//set the proper fps by the camera's cap
     frmival.pixel_format = V4L2_PIX_FMT_YUYV;
     frmival.width = FORCED_WIDTH;
     frmival.height = FORCED_HEIGHT;
@@ -618,7 +621,7 @@ int extra_cam_setting(int camfd)
 #endif
 }
 
-void cvPrintf(IplImage* img, char *text)
+void cvPrintf(IplImage* img, char *text, CvPoint TextPosition, CvScalar Color)
 {
   //char text[] = "Funny text inside the box";
   //int fontFace = FONT_HERSHEY_SCRIPT_SIMPLEX;
@@ -630,8 +633,8 @@ void cvPrintf(IplImage* img, char *text)
 
   double Scale=2.5;
   int Thickness=2;
-  CvScalar Color=CV_RGB(255,0,0);;
-  CvPoint TextPosition=cvPoint(400,50);
+  //CvScalar Color=CV_RGB(255,0,0);
+  //CvPoint TextPosition=cvPoint(400,50);
   CvFont Font1=cvFont(Scale,Thickness);
   // then put the text itself
   cvPutText(img, text, TextPosition, &Font1,Color);
@@ -740,22 +743,32 @@ static CvScalar processFrame(const void *p, int size)
 				cvPoint(sroi.x+sroi.width, sroi.y+sroi.height),
 				CV_RGB(255, 0, 0), ROI_BORDERW,8, 0);
 #endif
-	gettimeofday(&pt2, NULL);
-	ut2 = (pt2.tv_sec * 1000000) + pt2.tv_usec;
-	if( ut1 && (ut2 > ut1)){
-//			printf("\npt=%lu us, fps=%.1f\n", ut2-ut1, 1000000.0/(ut2-ut1));
-		pr_debug(DSP_INFO,"fps=%.0f\n", 1000000.0/(ut2-ut1));
-	}
-	ut1=ut2;
 	CvScalar m_rgb=cvScalar(dst[0],dst[1],dst[2], dst[3]);
 	char hrtext[20];
 	float pr=0.0;
 	static float valid_pr=0.0;
 	int n= spectraAnalysis(m_rgb, &pr,NULL);
-	if(n) valid_pr=pr;
+	CvScalar Color=CV_RGB(255,0,0);
+	if(n){
+	  //green color
+	  Color=CV_RGB(0,255,0);
+	  valid_pr=pr;
+	}else{
+	  //red color`
+	  Color=CV_RGB(255,0,0);
+	}
 	sprintf(hrtext,"%.1fbpm", valid_pr*60);
-	cvPrintf(framecopy, hrtext);
+	cvPrintf(framecopy, hrtext, cvPoint(400,50), Color);
 
+	gettimeofday(&pt2, NULL);
+	ut2 = (pt2.tv_sec * 1000000) + pt2.tv_usec;
+	if( ut1 && (ut2 > ut1)){
+//			printf("\npt=%lu us, fps=%.1f\n", ut2-ut1, 1000000.0/(ut2-ut1));
+	  pr_debug(DSP_INFO,"fps=%.0f\n", 1000000.0/(ut2-ut1));
+	  sprintf(hrtext,"fps:%.1f", 1000000.0/(ut2-ut1));
+	  cvPrintf(framecopy, hrtext, cvPoint(400,100), CV_RGB(0,0,255));
+	}
+	ut1=ut2;
 	cvShowImage(windowname, framecopy);
 
 	if(framecopy)
@@ -1394,7 +1407,7 @@ static void usage(FILE *fp, int argc, char **argv)
 		getMaxSampleTime(),getSampleWindow(),getFPS(),getStepping());
 }
 
-static const char short_options[] = "c:d:e:f:hi:m:M:o:prs:uvw:";
+static const char short_options[] = "c:d:e:f:F:hi:m:M:o:prs:uvw:";
 
 static const struct option
 long_options[] = {
@@ -1456,6 +1469,13 @@ static int option(int argc, char **argv)
 
 		case 'f':
 			force_format++;
+			break;
+
+		case 'F':
+			errno = 0;
+			setFPS(strtol(optarg, NULL, 0));
+			if (errno)
+				errno_exit(optarg);
 			break;
 
 		case 'h':
