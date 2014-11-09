@@ -618,9 +618,28 @@ int extra_cam_setting(int camfd)
 #endif
 }
 
-void spectraAnalysis(CvScalar rgb)
+void cvPrintf(IplImage* img, char *text)
 {
-	int i;
+  //char text[] = "Funny text inside the box";
+  //int fontFace = FONT_HERSHEY_SCRIPT_SIMPLEX;
+  //double fontScale = 2;
+
+  // center the text
+  //Point textOrg((img.cols - textSize.width)/2,
+	//			(img.rows + textSize.height)/2);
+
+  double Scale=2.5;
+  int Thickness=2;
+  CvScalar Color=CV_RGB(255,0,0);;
+  CvPoint TextPosition=cvPoint(400,50);
+  CvFont Font1=cvFont(Scale,Thickness);
+  // then put the text itself
+  cvPutText(img, text, TextPosition, &Font1,Color);
+}
+
+int spectraAnalysis(CvScalar rgb, float *pr, float *rr)
+{
+	int i, n=0;
 	pr_debug(DSP_INFO,"+%s:\n", __func__);
 	//PCircularQueue pq[]={cq, cqLong};
 	PCircularQueue pq[]={cq};
@@ -644,13 +663,14 @@ void spectraAnalysis(CvScalar rgb)
 				rawTrace = cvCreateMat(MAX_CHANNELS, win_samples[i], RAW_ELEMENT_TYPE);
 				if(rawTrace){
 					CvScalar spectra[MAX_SPECTRAS];//(magnitude, freq, channel)
-					int n;
 					cqClone(pq[i], rawTrace);
 					n=rawTraceSpectra(rawTrace, spectra);
 					//clear out steps from cq and waits for when cq is full.
 					for(j=0;j<steps;j++) cqDelete(pq[i], NULL);
 					pr_debug(DSP_INFO,"[%d] frames are cleared out: %d left\n", steps,
 							cqUsedSize(pq[i]));
+					if(n && pr)
+					  *pr=spectra[0].val[1];
 					for(j=0; j<n;j++) {
 						pr_debug(DSP_DEBUG,"\n***[%d: %.1fbpm (%.3fhz), mag=%.3f,"
 								 "ch=%.0f]\n\n",
@@ -662,7 +682,8 @@ void spectraAnalysis(CvScalar rgb)
 			}
 		}
 	}
-
+  pr_debug(DSP_INFO,"-%s:n=%d, freq=%.3f\n", __func__,n,pr?*pr:0);
+  return n;
 }
 
 /*
@@ -670,7 +691,7 @@ p is a YUYV 422 format, so 640x480x16bits = 61440 bytes
 */
 static CvScalar processFrame(const void *p, int size)
 {
-	IplImage* framecopy;
+	IplImage* framecopy=NULL;
 	static uint64_t ut1;
 	uint64_t ut2;
 	struct timeval pt2;
@@ -718,10 +739,6 @@ static CvScalar processFrame(const void *p, int size)
 	cvRectangle(framecopy, cvPoint(sroi.x, sroi.y),
 				cvPoint(sroi.x+sroi.width, sroi.y+sroi.height),
 				CV_RGB(255, 0, 0), ROI_BORDERW,8, 0);
-   	cvShowImage(windowname, framecopy);
-	cvReleaseImage(&framecopy);
-//    cvCvtColor(frame, );
-//    CvMat cvmat = cvMat(FORCED_HEIGHT, FORCED_WIDTH,  CV_8UC2, (void*)p);//V4L2_PIX_FMT_YUYV, 16bits
 #endif
 	gettimeofday(&pt2, NULL);
 	ut2 = (pt2.tv_sec * 1000000) + pt2.tv_usec;
@@ -730,8 +747,21 @@ static CvScalar processFrame(const void *p, int size)
 		pr_debug(DSP_INFO,"fps=%.0f\n", 1000000.0/(ut2-ut1));
 	}
 	ut1=ut2;
-	CvScalar rgb=cvScalar(dst[0],dst[1],dst[2], dst[3]);
-	return rgb;
+	CvScalar m_rgb=cvScalar(dst[0],dst[1],dst[2], dst[3]);
+	char hrtext[20];
+	float pr=0.0;
+	static float valid_pr=0.0;
+	int n= spectraAnalysis(m_rgb, &pr,NULL);
+	if(n) valid_pr=pr;
+	sprintf(hrtext,"%.1fbpm", valid_pr*60);
+	cvPrintf(framecopy, hrtext);
+
+	cvShowImage(windowname, framecopy);
+
+	if(framecopy)
+	  cvReleaseImage(&framecopy);
+
+	return m_rgb;
 }
 
 static int readFrame(void)
@@ -825,7 +855,7 @@ static int readFrame(void)
 			errno_exit("VIDIOC_QBUF");
 		break;
 	}
-	spectraAnalysis(m_rgb);
+	//spectraAnalysis(m_rgb, NULL,NULL);
 	return 1;
 }
 
