@@ -621,7 +621,8 @@ int extra_cam_setting(int camfd)
 #endif
 }
 
-void cvPrintf(IplImage* img, char *text, CvPoint TextPosition, CvScalar Color)
+void cvPrintf(IplImage* img, char *text, CvPoint TextPosition, CvFont Font1,
+			  CvScalar Color)
 {
   //char text[] = "Funny text inside the box";
   //int fontFace = FONT_HERSHEY_SCRIPT_SIMPLEX;
@@ -631,16 +632,17 @@ void cvPrintf(IplImage* img, char *text, CvPoint TextPosition, CvScalar Color)
   //Point textOrg((img.cols - textSize.width)/2,
 	//			(img.rows + textSize.height)/2);
 
-  double Scale=2.5;
-  int Thickness=2;
+  //double Scale=2.0;
+  //int Thickness=2;
   //CvScalar Color=CV_RGB(255,0,0);
   //CvPoint TextPosition=cvPoint(400,50);
-  CvFont Font1=cvFont(Scale,Thickness);
+  //CvFont Font1=cvFont(Scale,Thickness);
   // then put the text itself
-  cvPutText(img, text, TextPosition, &Font1,Color);
+  cvPutText(img, text, TextPosition, &Font1, Color);
+  //cvPutText(img, text, TextPosition, &Font1, CV_RGB(0,255,0));
 }
 
-int spectraAnalysis(CvScalar rgb, float *pr, float *rr)
+int spectraAnalysis(IplImage* framecopy, CvScalar rgb, float *pr, float *rr)
 {
 	int i, n=0;
 	pr_debug(DSP_INFO,"+%s:\n", __func__);
@@ -655,6 +657,11 @@ int spectraAnalysis(CvScalar rgb, float *pr, float *rr)
 			int j;
 			int steps=getStepping()*getFPS();
 			pr_debug(DSP_INFO,"cq[%d]: %d\n",i, cqUsedSize(pq[i]));
+			//indicator to count bpm
+			char hrtext[20];
+			sprintf(hrtext,"[%d/%d]", cqUsedSize(pq[i])+1,cqSize(pq[i]));
+			cvPrintf(framecopy, hrtext, cvPoint(200,90), cvFont(2.0,1.0), CV_RGB(0,255,0));
+
 			if(cqFull(pq[i])){
 				int row,col;
 				CvMat *rawTrace;
@@ -674,6 +681,7 @@ int spectraAnalysis(CvScalar rgb, float *pr, float *rr)
 							cqUsedSize(pq[i]));
 					if(n && pr)
 					  *pr=spectra[0].val[1];
+					else n=-1;//no valid spectra is found!
 					for(j=0; j<n;j++) {
 						pr_debug(DSP_DEBUG,"\n***[%d: %.1fbpm (%.3fhz), mag=%.3f,"
 								 "ch=%.0f]\n\n",
@@ -699,9 +707,6 @@ static CvScalar processFrame(const void *p, int size)
 	uint64_t ut2;
 	struct timeval pt2;
 	pr_debug(DSP_INFO,"%s: size=0x%x\n", __func__, size);
-
-//	if (out_buf)
-//		fwrite(p, size, 1, stdout);
 
 #if 0 	//V4L2_PIX_FMT_MJPEG
     IplImage* frame;
@@ -730,35 +735,41 @@ static CvScalar processFrame(const void *p, int size)
 //	}
 	framecopy = cvCreateImage(cvSize(FORCED_WIDTH,FORCED_HEIGHT), IPL_DEPTH_8U, 3);
 	yuyv_to_rgb24(FORCED_WIDTH,FORCED_HEIGHT, (unsigned char *)p, framecopy->imageData);
-	double dst[3]={0.0};
+	float m_roi[3]={0.0};
 	CvRect sroi;
 	sroi.x = (framecopy->width - ROI_WIDTH)/2 - 1;
 	sroi.y = (framecopy->height - ROI_HEIGHT)/2 - 1+ ROI_Y_OFFSET;
 	sroi.width = ROI_WIDTH;
 	sroi.height = ROI_HEIGHT ;
-	roi_mean(framecopy, sroi, dst);
+	roi_mean(framecopy, sroi, m_roi);
+	pr_debug(DSP_INFO,"m_roi(%.4f,%.4f,%.4f)\n", m_roi[0],m_roi[1],m_roi[2]);
 	//
 	//draw the bouding ROI on the frame
-	cvRectangle(framecopy, cvPoint(sroi.x, sroi.y),
+	/*cvRectangle(framecopy, cvPoint(sroi.x, sroi.y),
 				cvPoint(sroi.x+sroi.width, sroi.y+sroi.height),
-				CV_RGB(255, 0, 0), ROI_BORDERW,8, 0);
+				CV_RGB(255, 0, 0), ROI_BORDERW,8, 0);*/
 #endif
-	CvScalar m_rgb=cvScalar(dst[0],dst[1],dst[2], dst[3]);
+	CvScalar m_rgb=cvScalar(m_roi[0],m_roi[1],m_roi[2], 0.0);
 	char hrtext[20];
 	float pr=0.0;
 	static float valid_pr=0.0;
-	int n= spectraAnalysis(m_rgb, &pr,NULL);
-	CvScalar Color=CV_RGB(255,0,0);
-	if(n){
+	int n= spectraAnalysis(framecopy, m_rgb, &pr,NULL);
+	static CvScalar textColor={100, 100, 100};//B,G,R
+	if(n>0){
 	  //green color
-	  Color=CV_RGB(0,255,0);
+	  textColor=CV_RGB(0,255,0);
 	  valid_pr=pr;
-	}else{
-	  //red color`
-	  Color=CV_RGB(255,0,0);
+	}else if(n < 0) {
+	  //red color
+	  textColor=CV_RGB(255,0,0);
 	}
-	sprintf(hrtext,"%.1fbpm", valid_pr*60);
-	cvPrintf(framecopy, hrtext, cvPoint(400,50), Color);
+	sprintf(hrtext,"%.1fbpm (%.2fHz)", valid_pr*60, valid_pr);
+	cvPrintf(framecopy, hrtext, cvPoint(200,40), cvFont(2.0,2.5), textColor);
+
+	//draw the bouding ROI on the frame
+	cvRectangle(framecopy, cvPoint(sroi.x, sroi.y),
+				cvPoint(sroi.x+sroi.width, sroi.y+sroi.height),
+				textColor, ROI_BORDERW,8, 0);
 
 	gettimeofday(&pt2, NULL);
 	ut2 = (pt2.tv_sec * 1000000) + pt2.tv_usec;
@@ -766,9 +777,13 @@ static CvScalar processFrame(const void *p, int size)
 //			printf("\npt=%lu us, fps=%.1f\n", ut2-ut1, 1000000.0/(ut2-ut1));
 	  pr_debug(DSP_INFO,"fps=%.0f\n", 1000000.0/(ut2-ut1));
 	  sprintf(hrtext,"fps:%.1f", 1000000.0/(ut2-ut1));
-	  cvPrintf(framecopy, hrtext, cvPoint(400,100), CV_RGB(0,0,255));
+	  cvPrintf(framecopy, hrtext, cvPoint(20,50), cvFont(1.5,1.0), CV_RGB(0,0,255));
 	}
 	ut1=ut2;
+
+	sprintf(hrtext,"press 'q' to quit...");
+	cvPrintf(framecopy, hrtext, cvPoint(10,460),cvFont(1.5,1.0), CV_RGB(255,255, 255));
+
 	cvShowImage(windowname, framecopy);
 
 	if(framecopy)
@@ -868,7 +883,7 @@ static int readFrame(void)
 			errno_exit("VIDIOC_QBUF");
 		break;
 	}
-	//spectraAnalysis(m_rgb, NULL,NULL);
+
 	return 1;
 }
 
