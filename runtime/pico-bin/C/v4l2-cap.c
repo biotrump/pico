@@ -1409,6 +1409,7 @@ static void usage(FILE *fp, int argc, char **argv)
 		 "-m | --min           minimum sample period in seconds[%i]\n"
 		 "-M | --max           max sample period in seconds[%i]\n"
 		 "-r | --read          Use read() calls\n"
+		 "-R | --RADICAL       ICA-RADICAL on/off[%d]\n"
 		 "-u | --userp         Use application allocated buffers\n"
 		 "-O | --stdout        Outputs stream to stdout\n"
 		 "-o | --output        debug file stream to stdout\n"
@@ -1419,10 +1420,10 @@ static void usage(FILE *fp, int argc, char **argv)
 		 "-v | --verbose       Verbose output\n"
 		 "",
 		 argv[0], frame_count, dev_name, getErrorLevel(), getMinSampleTime(),
-		getMaxSampleTime(),getSampleWindow(),getFPS(),getStepping());
+		getMaxSampleTime(), getRADICAL(), getSampleWindow(),getFPS(),getStepping());
 }
 
-static const char short_options[] = "c:d:e:f:F:hi:m:M:o:prs:uvw:";
+static const char short_options[] = "c:d:e:f:F:hi:m:M:o:prR:s:uvw:";
 
 static const struct option
 long_options[] = {
@@ -1439,6 +1440,7 @@ long_options[] = {
 	{ "stdout", 	required_argument, NULL, 'O' },
 	{ "mmap",   no_argument,       NULL, 'p' },
 	{ "read",   no_argument,       NULL, 'r' },
+	{ "RADICAL", 	required_argument, NULL, 'R' },
 	{ "step",  		required_argument, NULL, 's' },
 	{ "userp",  no_argument,       NULL, 'u' },
 	{ "verbose", 	no_argument,       NULL, 'v' },
@@ -1449,6 +1451,7 @@ long_options[] = {
 static int option(int argc, char **argv)
 {
 	int r=0;
+	printf("+%s:\n",__func__);
 	dev_name = "/dev/video0";
 
 	for (;;) {
@@ -1508,6 +1511,14 @@ static int option(int argc, char **argv)
 
 		case 'r':
 			io = IO_METHOD_READ;
+			break;
+
+		case 'R':
+			errno = 0;
+			setRADICAL(strtol(optarg, NULL, 0));
+			printf("DSP RAIDCAL [%d].\n",getRADICAL());
+			if (errno)
+				errno_exit(optarg);
 			break;
 
 		case 'u':
