@@ -28,7 +28,7 @@
 //#define _ROTATION_INVARIANT_DETECTION_
 
 /*
-	
+
 */
 
 #ifndef _ROTATION_INVARIANT_DETECTION_
@@ -62,7 +62,7 @@
 #endif
 
 /*
-	
+
 */
 
 int minsize = MINSIZE;
@@ -105,14 +105,12 @@ void process_image(IplImage* frame, int draw, int print)
 #else
 	// scan the image at 12 different orientations
 	ndetections = 0;
-	#pragma omp parallel for
+	//#pragma omp parallel for
+	for(i=0; i<12; ++i)
 	{
-		for(i=0; i<12; ++i)
-		{
-			float orientation = i*2*3.14f/12;// 2Pi/12= 360"/12=30"
+		float orientation = i*2*3.14f/12;// 2Pi/12= 360"/12=30"
 
-			ndetections += find_objects(orientation, &rs[ndetections], &cs[ndetections], &ss[ndetections], &qs[ndetections], MAXNDETECTIONS-ndetections, appfinder, pixels, nrows, ncols, ldim, SCALEFACTOR, STRIDEFACTOR, minsize, MIN(nrows, ncols), 1);
-		}
+		ndetections += find_objects(orientation, &rs[ndetections], &cs[ndetections], &ss[ndetections], &qs[ndetections], MAXNDETECTIONS-ndetections, appfinder, pixels, nrows, ncols, ldim, SCALEFACTOR, STRIDEFACTOR, minsize, MIN(nrows, ncols), 1);
 	}
 #endif
 
@@ -136,9 +134,7 @@ void process_webcam_frames()
 	CvCapture* capture;
 
 	IplImage* frame;
-	IplImage* framecopy;
-
-	int stop;
+	IplImage* framecopy=NULL;
 
 	const char* windowname = "--------------------";
 
@@ -151,21 +147,17 @@ void process_webcam_frames()
 	}
 
 	// start the main loop in which we'll process webcam output
-	framecopy = 0;
-	stop = 0;
-	while(!stop)
+	while(1)
 	{
-		// wait 5 miliseconds
-		int key = cvWaitKey(5);
-
 		// retrieve a pointer to the image acquired from the webcam
 		if(!cvGrabFrame(capture))
 			break;
 		frame = cvRetrieveFrame(capture, 1);
-
+		// wait 5 miliseconds
+		int key = cvWaitKey(5);
 		// we terminate the loop if we don't get any data from the webcam or the user has pressed 'q'
 		if(!frame || key=='q')
-			stop = 1;
+			break;
 		else
 		{
 			// we mustn't tamper with internal OpenCV buffers and that's the reason why we're making a copy of the current frame
@@ -183,9 +175,9 @@ void process_webcam_frames()
 			cvShowImage(windowname, framecopy);
 		}
 	}
-
 	// cleanup
-	cvReleaseImage(&framecopy);
+	if(framecopy) cvReleaseImage(&framecopy);
+	framecopy =  NULL;
 	cvReleaseCapture(&capture);
 	cvDestroyWindow(windowname);
 }

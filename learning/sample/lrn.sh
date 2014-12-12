@@ -6,7 +6,7 @@
 
 mkdir -p faces
 
-python preparefacesamplesfromgenki.py $1 faces
+python3 preparefacesamplesfromgenki.py $1 faces
 
 #
 # prepare non-face samples (background)
@@ -14,7 +14,7 @@ python preparefacesamplesfromgenki.py $1 faces
 
 mkdir -p nonfaces
 
-python preparebackground.py $2 nonfaces
+python3 preparebackground.py $2 nonfaces
 
 #
 # start the learning process
@@ -35,4 +35,4 @@ python preparebackground.py $2 nonfaces
 # transform detector to a hex array
 #
 
-python tohexarray.py d > face-detector-from-genki-dataset.ea
+python3 tohexarray.py d > face-detector-from-genki-dataset.ea

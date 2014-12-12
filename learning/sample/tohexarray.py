@@ -1,5 +1,4 @@
-#
-#
+# covert the decsion tree to a hex text file : 0x00, 0x00, 0x80, 0x3f,......
 #
 
 #
