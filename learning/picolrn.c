@@ -57,6 +57,7 @@ int loadrid(uint8_t* pixels[], int* nrows, int* ncols, const char* path)
 
 	if(!file)
 	{
+		printf("%s opening failure %d\n", path, errno);
 		return 0;
 	}
 
@@ -72,8 +73,8 @@ int loadrid(uint8_t* pixels[], int* nrows, int* ncols, const char* path)
 	*pixels = (uint8_t*)malloc(w*h*sizeof(uint8_t));
 	if(!*pixels)
 	{
+		printf("malloc error %d\n",errno);
 		fclose(file);
-
 		return 0;
 	}
 	uRidBufSize += w*h*sizeof(uint8_t);//total allocation buffer size
@@ -84,6 +85,7 @@ int loadrid(uint8_t* pixels[], int* nrows, int* ncols, const char* path)
 	fclose(file);
 
 	// we're done
+	printf("memory used : %u\n", uRidBufSize);
 	return 1;
 }
 
@@ -184,7 +186,8 @@ tcode : 4 bytes for (x,y) position used to compare pixel intensity
 	x is 2 bytes and y is 2 bytes, too.
 
 */
-int bintest(int tcode, int r, int c, int sr, int sc, uint8_t pixels[], int nrows, int ncols, int ldim)
+int bintest(int tcode, int r, int c, int sr, int sc, uint8_t pixels[],
+			int nrows, int ncols, int ldim)
 {
 	//
 	int r1, c1, r2, c2;
@@ -208,7 +211,8 @@ int bintest(int tcode, int r, int c, int sr, int sc, uint8_t pixels[], int nrows
 	return pixels[r1*ldim+c1]<=pixels[r2*ldim+c2];
 }
 
-float get_rtree_output(rtree* t, int r, int c, int sr, int sc, uint8_t pixels[], int nrows, int ncols, int ldim)
+float get_rtree_output(rtree* t, int r, int c, int sr, int sc, uint8_t pixels[],
+					   int nrows, int ncols, int ldim)
 {
 	int d, idx;
 
@@ -592,15 +596,14 @@ static int oncolss[MAXNUMOS];
  */
 int load_object_samples(const char* folder)
 {
-	char buffer[1024];
+	char buffer[1024], tempstr[100];
 	FILE* list;
-
 	//
 	printf("Loading object samples from '%s'\n", folder);
 
 	//load faces/list.txt
 	sprintf(buffer, "%s/%s", folder, "list.txt");
-
+	printf("opening %s\n", buffer);
 	list = fopen(buffer, "r");
 
 	if(!list)
@@ -609,14 +612,20 @@ int load_object_samples(const char* folder)
 	//number of object sample
 	numos = 0;
 	//get the total rid files number.
-	if(fscanf(list, "%u", &uTotalRIDFiles) == 1){
+	/*if(fgets(tempstr, 100, list) != NULL){
+		sscanf(tempstr, "%u", &uTotalRIDFiles);
+		printf("total %u face rid files\n", uTotalRIDFiles);
+	*/
+	if(fscanf(list, "%s\n", tempstr) == 1){
+		sscanf(tempstr, "%u", &uTotalRIDFiles);
 		printf("total %u face rid files\n", uTotalRIDFiles);
 	}else{
-		printf("%s reading first line error %d\n", errno);
+		printf("%s reading first line error %d\n", buffer, errno);
 		return 0;
 	}
 	// read an rid file by the list.txt, facennnn.rid, every iteration.
-	while(fscanf(list, "%s", buffer) == 1 && (numos < MAXNUMOS))
+	//while(fscanf(list, "%s", buffer) == 1 && (numos < MAXNUMOS))
+	while(fscanf(list, "%s\n", buffer) == 1 && (numos < MAXNUMOS))
 	{
 		char fullpath[1024];
 
@@ -626,6 +635,7 @@ int load_object_samples(const char* folder)
 
 		// load rid image, face0.rid, into memory opixels[]
 		sprintf(fullpath, "%s/%s", folder, buffer);
+		printf("loading [%s]\n", fullpath);
 		/*raw intensity data :
 		 * 4 bytes width : x
 		 * 4 bytes height : y
@@ -638,8 +648,22 @@ int load_object_samples(const char* folder)
 
 		// number of samples associated with this image
 		// usually "7" face bounding boxes for a rid file.
-		if(fscanf(list, "%d", &n) != 1)
+		//if(fscanf(list, "%s\n", tempstr) != 1){
+		if(fgets(tempstr, 100, list) == NULL){
+			printf("read string error %d\n", errno);
 			return 0;
+		}
+		printf("+++[%s]\n",tempstr);
+		int temp=0;
+		if(temp = sscanf(tempstr, "%d", &n) != 1){
+			printf("xxx[%d] n=%d\n",temp, n);
+			return 0;
+		}
+		/*
+		if(fscanf(list, "%d", &n) != 1){
+			printf("xxx n=%d\n", n);
+			return 0;
+		}*/
 
 		/* One rid file buffer, opixels, will be used by
 		 * "7" face bounding boxes. These bounding boxes
@@ -655,10 +679,11 @@ int load_object_samples(const char* folder)
 			float r, c, s;
 
 			//
-			if(fscanf(list, "%f %f %f", &r, &c, &s) != 3)
+			if(fscanf(list, "%f %f %f", &r, &c, &s) != 3){
+				printf("xxxx : r,c,s\n");
 				return 0;
-
-			//object box center coordinations:(r,c,s)
+			}
+			//object bounding box center coordinations:(r,c,s)
 			ors[numos] = r;
 			ocs[numos] = c;
 			oss[numos] = s;
@@ -675,7 +700,7 @@ int load_object_samples(const char* folder)
 		}
 	}
 	fclose(list);
-
+	printf("+++total faces numos=%d\n", numos);
 	//check the maximum numbers of object samples supported.
 	/*if(numos >= MAXNUMOS)
 	{
@@ -709,29 +734,29 @@ int load_background_images(char* folder)
 	char path[1024], name[1024];
 
 	//
-	printf("Loading background images from '%s'\n", folder);
+	printf("\nLoading background images from '%s'\n", folder);
 
 	//
 	sprintf(path, "%s/list.txt", folder);
 
 	list = fopen(path, "r");
-
+	printf("loading [%s]\n", path);
 	if(!list)
 		return 0;
 
 	//get the total rid files number.
-	if(fscanf(list, "%u", &uTotalBSRIDFiles) == 1){
-		printf("total %u nonface rid files\n", uTotalBSRIDFiles);
+	if(fscanf(list, "%u\n", &uTotalBSRIDFiles) == 1){
+		printf("total [%u] nonface rid files in the list...\n", uTotalBSRIDFiles);
 	}else{
-		printf("%s reading first line error %d\n", errno);
+		printf("%s reading first line error %d\n", path, errno);
 		return 0;
 	}
 	//
-	while(fscanf(list, "%s", name)==1 && numbs<MAXNUMBS)
+	while(fscanf(list, "%s\n", name)==1 && numbs<MAXNUMBS)
 	{
 		//rid file name in nonfaces : 00000-IMG_2121.JPG.rid
 		sprintf(path, "%s/%s", folder, name);
-
+		printf("[%s]\n", path);
 		//
 		if(loadrid(&bpixelss[numbs], &bnrowss[numbs], &bncolss[numbs], path))
 			++numbs;
@@ -739,7 +764,7 @@ int load_background_images(char* folder)
 
 	//
 	fclose(list);
-
+	printf("total background [%d]\n", numbs);
 	//
 	return 1;
 }
@@ -762,21 +787,25 @@ struct
 } odetector;
 
 /*
-o  : static float os[MAXMAXNUMSAMPLES];
-r : global : ors[] = object row size array,
-c : global ocs[] : object column array,
-s : global oss[] : object size array
-
+o  : regression value
+r : object sample center at row
+c : object sample center at column
+s : object sample center's diameter
+pixels : object sample's rid data buffer
+nrows, ncols : object sample's dim
+ldim : object samples' column ???
 */
-int classify_region(float* o, float r, float c, float s, uint8_t pixels[], int nrows, int ncols, int ldim)
+int classify_region(float* o, float r, float c, float s, uint8_t pixels[],
+					int nrows, int ncols, int ldim)
 {
 	int i, j;
 	float ir, ic, isr, isc;
 
+	//printf("[%s]: odetector.numstages=%d\n", __func__, odetector.numstages);
 	//
 	*o = 0.0f;
 
-	//
+	//0 stage. it's in init phase only!
 	if(!odetector.numstages)
 		return 1;
 
@@ -794,7 +823,8 @@ int classify_region(float* o, float r, float c, float s, uint8_t pixels[], int n
 	{
 		//
 		for(j=0; j<odetector.numtreess[i]; ++j)
-			*o += get_rtree_output(&odetector.rtreearrays[i][j], ir, ic, isr, isc, pixels, nrows, ncols, ldim);
+			*o += get_rtree_output(&odetector.rtreearrays[i][j], ir, ic, isr,
+								   isc, pixels, nrows, ncols, ldim);
 
 		//
 		if(*o <= odetector.thresholds[i])
@@ -824,7 +854,9 @@ int saveDetector(char* path)
 
 	fwrite(&odetector.numstages, sizeof(int), 1, f);//odetector.numstages == 0 in the detector init stage.
 
-	//iterate over all stages
+	/* iterate over all stages
+	 * if this is the init phase, the numstages is 0.
+	 */
 	for(i=0; i<odetector.numstages; ++i)
 	{	//the ensemble of trees in the stage
 		fwrite(&odetector.numtreess[i], sizeof(int), 1, f);
@@ -970,7 +1002,9 @@ int learn_new_stage(int stageidx, int tdepth, float mintpr, float maxfpr, int ma
 			float o;
 
 			//
-			o = get_rtree_output(&odetector.rtreearrays[stageidx][numtrees-1], irs[i], ics[i], isrs[i], iscs[i], pixelss[i], nrowss[i], ncolss[i], ncolss[i]);
+			o = get_rtree_output(&odetector.rtreearrays[stageidx][numtrees-1],
+								 irs[i], ics[i], isrs[i], iscs[i], pixelss[i],
+								nrowss[i], ncolss[i], ncolss[i]);
 
 			//
 			os[i] += o;
@@ -1030,20 +1064,26 @@ int learn_new_stage(int stageidx, int tdepth, float mintpr, float maxfpr, int ma
 }
 
 /*
-numos : total object samples loaded
+numos : total object samples loaded. each rid sample has 7 face boxes.
+each face sample has a mirrored sample, so a face sample will generate 14 face boxes, numos.
 
 the following are init before invoking sample_training_data.
-#define MAXMAXNUMSAMPLES 2*MAXNUMOS
-static float rs[MAXMAXNUMSAMPLES];
-static float cs[MAXMAXNUMSAMPLES];
-static float ss[MAXMAXNUMSAMPLES];
-static int classs[MAXMAXNUMSAMPLES];
-static uint8_t* pixelss[MAXMAXNUMSAMPLES];
-static int nrowss[MAXMAXNUMSAMPLES];
-static int ncolss[MAXMAXNUMSAMPLES];
-static float os[MAXMAXNUMSAMPLES];
+#define MAXMAXNUMSAMPLES 2*MAXNUMOS	: twice the loaded samples.
+
+float rs[MAXMAXNUMSAMPLES];	face bounding box center, row
+float cs[MAXMAXNUMSAMPLES];	face bounding box center, column
+float ss[MAXMAXNUMSAMPLES];	face bounding box center, diameter
+int classs[MAXMAXNUMSAMPLES];	???
+uint8_t* pixelss[MAXMAXNUMSAMPLES];	rid raw data, 8 bit grey level
+int nrowss[MAXMAXNUMSAMPLES];	rid file's dimension
+int ncolss[MAXMAXNUMSAMPLES];	rid file's dimension
+float os[MAXMAXNUMSAMPLES];		regression value
+int maxn;	maxnumsamples, "2*numos" numbers of object samples loaded into ram
+int* np, int* nn; number of positive and negative samples
 */
-float sample_training_data(int classs[], float rs[], float cs[], float ss[], uint8_t* pixelss[], int nrowss[], int ncolss[], float os[], int maxn, int* np, int* nn)
+float sample_training_data(int classs[], float rs[], float cs[], float ss[],
+						   uint8_t* pixelss[], int nrowss[], int ncolss[],
+						   float os[], int maxn, int* np, int* nn)
 {
 	int i, n;
 
@@ -1065,13 +1105,22 @@ float sample_training_data(int classs[], float rs[], float cs[], float ss[], uin
 
 	//
 	n = 0;
+	printf("[%s]: odetector.numstages=%d\n", __func__, odetector.numstages);
 
 	/*
-		positive (face) object samples
-	*/
-	// global : ors[] = object row size array, ocs[] : object column array, oss[] : object size array
+	 * positive (face) object samples
+	 * ors, ocs and oss have been setup in load_object_samples.
+	 * ors[] = object bounding box center at row array
+	 * ocs[] : object bounding box center at column array
+	 * oss[] : object bounding box center at diameter array
+	 * opixelss : face rid raw data, 8 bit grey
+	 * onrowss : rid's row
+	 * oncolss : rid's column
+	 * os[]: regression value of the object sample
+	 */
 	for(i=0; i<numos; ++i)
-		if( classify_region(&os[n], ors[i], ocs[i], oss[i], opixelss[i], onrowss[i], oncolss[i], oncolss[i])>0 )
+		if( classify_region(&os[n], ors[i], ocs[i], oss[i], opixelss[i],
+			onrowss[i], oncolss[i], oncolss[i])>0 )
 		{
 			//
 			rs[n] = ors[i];
@@ -1082,7 +1131,7 @@ float sample_training_data(int classs[], float rs[], float cs[], float ss[], uin
 			nrowss[n] = onrowss[i];
 			ncolss[n] = oncolss[i];
 
-			classs[n] = +1;//positive sample, +1
+			classs[n] = +1;//ground truth table for positive sample, +1
 
 			//
 			++n;
@@ -1156,11 +1205,11 @@ float sample_training_data(int classs[], float rs[], float cs[], float ss[], uin
 
 						os[n] = o;
 
-						classs[n] = 0;//negative sample
+						classs[n] = 0;//ground truth table for negative sample
 
 						//
 						++n;
-						++*nn;////number of negative samples
+						++*nn;//number of negative samples
 					}
 					else
 						stop = 1;
@@ -1202,8 +1251,14 @@ sscanf(argv[9], "%d", &maxnumtreesperstage);	//a tree is a weak classifier, a st
 src : path to read the the detector file "d"
 dst : path to write the detector file "d"
 
+picolrn d faces nonfaces 1 1e-6 6 0.980 0.5 1 d >> log.txt
+maxnstages = maxnumstagestoappend = 1,
+targetfpr=1e-6,
+...
 */
-int append_stages_to_odetector(char* src, char* dst, int maxnumstagestoappend, float targetfpr, float minstagetpr, float maxstagefpr, int tdepths, int maxnumtreesperstage)
+int append_stages_to_odetector(char* src, char* dst, int maxnumstagestoappend,
+		float targetfpr, float minstagetpr, float maxstagefpr, int tdepths,
+		int maxnumtreesperstage)
 {
 	#define MAXMAXNUMSAMPLES 2*MAXNUMOS
 
@@ -1226,13 +1281,21 @@ int append_stages_to_odetector(char* src, char* dst, int maxnumstagestoappend, f
 	if(!loadDetector(src))
 		return 0;
 
-	//odetector.numstages is "0" at first and then is added by the following learning append stage
+	/* odetector.numstages is "0" at first and
+	 * then is added by the following learning append stage
+	 */
 	maxnumstages = odetector.numstages + maxnumstagestoappend;
 	maxnumsamples = 2*numos;//numos : number of object samples loaded into ram
 
-	//np : positive samples, nn : negative samples
+	//np : number of positive samples, nn : number of negative samples
 	np = nn = 0;
 
+	/* Only appending phase will come here, but init phase won't come here.
+	 * ./picolrn d faces nonfaces '1' 1e-6 6 0.980 0.5 1 d >> log.txt
+	 * i=odetector.numstages = 0 after the first init stage.
+	 * maxnumstages = 0 + 1 = 1
+	 * 	.....
+	 */
 	for(i=odetector.numstages; i<maxnumstages; ++i)
 	{
 		float currentfpr;//fpr : false positive rate
@@ -1246,7 +1309,13 @@ int append_stages_to_odetector(char* src, char* dst, int maxnumstagestoappend, f
 
 		printf("\n");
 
-		currentfpr = sample_training_data(classs, rs, cs, ss, pixelss, nrowss, ncolss, os, maxnumsamples, &np, &nn);
+		currentfpr = sample_training_data(classs,		//class??
+										  rs, cs, ss,	//face bounding box center
+										  pixelss,		//rid raw data
+										  nrowss, ncolss,//rid's dim rows and cols
+										os,				//???
+										maxnumsamples,	//2*numos numbers of object samples loaded into ram
+										&np, &nn);		//positive and negative samples
 
 		if(currentfpr <= targetfpr)
 		{
@@ -1263,7 +1332,9 @@ int append_stages_to_odetector(char* src, char* dst, int maxnumstagestoappend, f
 		printf("- learning stage ...\n");
 		printf("	npositives: %d, nnegatives: %d\n", np, nn);
 
-		learn_new_stage(i, tdepths, minstagetpr, maxstagefpr, maxnumtreesperstage, classs, rs, cs, ss, pixelss, nrowss, ncolss, os, np, nn);
+		learn_new_stage(i, tdepths, minstagetpr, maxstagefpr,
+						maxnumtreesperstage, classs, rs, cs, ss,
+					pixelss, nrowss, ncolss, os, np, nn);
 
 		/*
 			we have a new stage
@@ -1326,12 +1397,13 @@ int main(int argc, char* argv[])
 	float minstagetpr, maxstagefpr;
 	int tdepths, maxnumtreesperstage;
 
-	//
-	//create and init an object detector "d" into a file
-	//start the learning process
-	//./picolrn 1 1 d > log.txt
+	//only init phase has argc==4.
 	if(argc == 4)
 	{
+	/* create and init an object detector "d" into a file
+	 * start the learning process
+	 * ./picolrn 1 1 d > log.txt
+	 */
 		sscanf(argv[1], "%f", &odetector.tsr);
 		sscanf(argv[2], "%f", &odetector.tsc);
 		//
@@ -1342,7 +1414,8 @@ int main(int argc, char* argv[])
 			return 0;
 
 		//
-		printf("INITIALIZING: (%f, %f)\n", odetector.tsr, odetector.tsc);
+		printf("INITIALIZING: (tsr=%f, tsc=%f, numstages=%d)\n",
+			   odetector.tsr, odetector.tsc, odetector.numstages);
 
 		//
 		return 0;//it only creates a "d" header file.
@@ -1365,7 +1438,7 @@ int main(int argc, char* argv[])
 		//1 1e-6 6 0.980 0.5 1 d
 		sscanf(argv[4], "%d", &maxnstages);
 		sscanf(argv[5], "%f", &targetfpr);	//false positive rate : error postive / total detected objects
-		sscanf(argv[6], "%d", &tdepths);		//maximum decision tree depth. deeper gets slow response.
+		sscanf(argv[6], "%d", &tdepths);	//maximum decision tree depth. deeper gets slow response.
 		sscanf(argv[7], "%f", &minstagetpr);	//minimum true positive rate :
 		sscanf(argv[8], "%f", &maxstagefpr);	//maximum false positive rate : 0.5 is maximum because a random guess possibility is 0.5.
 							//A weak classifier should be better than or equal to a random guess. the fp objects will go to the next stage
@@ -1403,7 +1476,12 @@ int main(int argc, char* argv[])
 	//
 	t = getticks();
 	printf("LEARNING ...\n");
-	append_stages_to_odetector(src, dst, maxnstages, targetfpr, minstagetpr, maxstagefpr, tdepths, maxnumtreesperstage);
+	/*./picolrn d faces nonfaces 1 1e-6 6 0.980 0.5 1 d >> log.txt
+	 * maxnstages = 1, targetfpr=1e-6
+	 *
+	 */
+	append_stages_to_odetector(src, dst, maxnstages, targetfpr, minstagetpr,
+							   maxstagefpr, tdepths, maxnumtreesperstage);
 	printf("FINISHED ...\n");
 
 	printf("elapsed time: %f [sec]\n", getticks()-t);

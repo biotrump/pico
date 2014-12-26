@@ -65,11 +65,6 @@ ADD_EXECUTABLE( genki
 	main.c
 	)
 
-#dynamic or static link
-#message( ">>>OpenCV_LIBS:""${OpenCV_LIBS}")
-#message( ">>>OPENCV_LINKER_LIBS:""${OPENCV_LINKER_LIBS}")
+#set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${PICO_OUT}/bin)
 
 TARGET_LINK_LIBRARIES( genki ${OpenCV_LIBS} )
-#TARGET_LINK_LIBRARIES( genki ${OpenCV_LIBS} libopencv_world.a)
-#TARGET_LINK_LIBRARIES( genki ${OpenCV_LIBS} ${OPENCV_CPP_SAMPLES_REQUIRED_DEPS})
-#TARGET_LINK_LIBRARIES( genki ${OpenCV_DIR}/lib/libopencv_world_pch_dephelp.a )
