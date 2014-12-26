@@ -21,6 +21,7 @@
 #include <malloc.h>
 #include <math.h>
 #include <stdint.h>
+#include <errno.h>
 
 // hyperparameters
 #define NRANDS 1024
@@ -33,14 +34,19 @@
 #define MIN(a, b) ((a)<(b)?(a):(b))
 #define SQR(x) ((x)*(x))
 
+unsigned uRidBufSize;
+
 /*  Raw Intensity Data
 	- loads an 8-bit grey image saved in the <RID> file format
 	- <RID> file contents:
 		- a 32-bit signed integer w (image width)
 		- a 32-bit signed integer h (image height)
 		- an array,pixels[], of w*h unsigned bytes representing pixel intensities
+*
+* load rid file data into pixels buffer.
+*
+* path : nonfaces/00000-IMG_2121.JPG.rid
 */
-
 int loadrid(uint8_t* pixels[], int* nrows, int* ncols, const char* path)
 {
 	FILE* file;
@@ -64,14 +70,13 @@ int loadrid(uint8_t* pixels[], int* nrows, int* ncols, const char* path)
 	*ncols = w;
 
 	*pixels = (uint8_t*)malloc(w*h*sizeof(uint8_t));
-
 	if(!*pixels)
 	{
 		fclose(file);
 
 		return 0;
 	}
-
+	uRidBufSize += w*h*sizeof(uint8_t);//total allocation buffer size
 	// read image data
 	fread(*pixels, sizeof(uint8_t), w*h, file);
 
@@ -262,7 +267,7 @@ int deallocate_rtree_data(rtree* t, int d)
 
 /*save the regression tree
 a binary tree of depth, the total nodes are 1+2+4+... 2^(depth-1)= 2^depth -1= 1<<depth -1
-t->tcodes : tree nodes , 
+t->tcodes : tree nodes ,
 t->lut : ???
 
 */
@@ -553,16 +558,38 @@ int grow_rtree(rtree* t, int d, float tvals[], int rs[], int cs[], int srs[], in
 
 #define MAXNUMOS 1000000
 
-static int numos;
+unsigned uTotalRIDFiles;
 
+static int numos;
+/* Object bounding box center : (r,c,s)
+ * r : row of the center
+ * c : column of the center
+ * s : diameter of the center
+ */
 static float ors[MAXNUMOS];
 static float ocs[MAXNUMOS];
 static float oss[MAXNUMOS];
 
+//rid's raw data :8 bit grey level
 static uint8_t* opixelss[MAXNUMOS];
 static int onrowss[MAXNUMOS];
 static int oncolss[MAXNUMOS];
 
+/*
+ * faces/list.txt : loading face rid into memory
+ * face0.rid
+	7	r=1.864	r=51	c=51	s=68
+	53.368931 52.498096 66.367462
+	50.208366 50.876999 62.476379
+	49.590645 52.140343 70.164223
+	47.852539 51.611729 63.247417
+	48.665779 51.724995 63.176521
+	54.229324 48.109943 63.397022
+	48.860561 49.702484 67.248596
+ * face1.rid .....
+ *
+ * folder : "faces" folder containing facennn.rid and list.txt
+ */
 int load_object_samples(const char* folder)
 {
 	char buffer[1024];
@@ -571,7 +598,7 @@ int load_object_samples(const char* folder)
 	//
 	printf("Loading object samples from '%s'\n", folder);
 
-	//
+	//load faces/list.txt
 	sprintf(buffer, "%s/%s", folder, "list.txt");
 
 	list = fopen(buffer, "r");
@@ -581,8 +608,15 @@ int load_object_samples(const char* folder)
 
 	//number of object sample
 	numos = 0;
-
-	while(fscanf(list, "%s", buffer) == 1) // read an image file name
+	//get the total rid files number.
+	if(fscanf(list, "%u", &uTotalRIDFiles) == 1){
+		printf("total %u face rid files\n", uTotalRIDFiles);
+	}else{
+		printf("%s reading first line error %d\n", errno);
+		return 0;
+	}
+	// read an rid file by the list.txt, facennnn.rid, every iteration.
+	while(fscanf(list, "%s", buffer) == 1 && (numos < MAXNUMOS))
 	{
 		char fullpath[1024];
 
@@ -590,40 +624,41 @@ int load_object_samples(const char* folder)
 		uint8_t* opixels;
 		int i, n;
 
-		//
-		if(numos >= MAXNUMOS)
-		{
-			printf("maximum allowed number of object samples exceeded: terminating ...\n");
-
-			return 0;
-		}
-
-		// load rid image into memory, opixels[]
+		// load rid image, face0.rid, into memory opixels[]
 		sprintf(fullpath, "%s/%s", folder, buffer);
-		/*raw intensity data :rid
-		nrows : rid's rows
-		ncols : rid's cols
-		opixels : 8 bit grey data loaded
+		/*raw intensity data :
+		 * 4 bytes width : x
+		 * 4 bytes height : y
+		 * nrows : rid's rows
+		 * ncols : rid's cols
+		 * opixels : 8 bit grey data loaded
 		*/
 		if(!loadrid(&opixels, &nrows, &ncols, fullpath))
 			return 0;
 
 		// number of samples associated with this image
+		// usually "7" face bounding boxes for a rid file.
 		if(fscanf(list, "%d", &n) != 1)
 			return 0;
 
-		// get samples
+		/* One rid file buffer, opixels, will be used by
+		 * "7" face bounding boxes. These bounding boxes
+		 * are a little variant in the r,c,s.
+		 *
+		 * The total object samples are multiplied by 7 times.
+		 * uTotalRIDFiles * 7
+		 */
 		for(i=0; i<n; ++i)
 		{
-			//object sample is specified by three coordinates (row, column and size;
-			//all in pixels)
+			//face bounding box is specified by three coordinates:
+			//(r,c,s) = (row of box center, column of box center , diameter of the box)
 			float r, c, s;
 
 			//
 			if(fscanf(list, "%f %f %f", &r, &c, &s) != 3)
 				return 0;
 
-			//object 
+			//object box center coordinations:(r,c,s)
 			ors[numos] = r;
 			ocs[numos] = c;
 			oss[numos] = s;
@@ -632,12 +667,21 @@ int load_object_samples(const char* folder)
 			onrowss[numos] = nrows;	//image rows
 			oncolss[numos] = ncols;	//image cols
 
-			//total object samples are loaded.
+			/* total object samples are loaded.
+			 * The total object samples are multiplied by 7 times.
+			 * uTotalRIDFiles * 7
+			 */
 			++numos;
 		}
 	}
-
 	fclose(list);
+
+	//check the maximum numbers of object samples supported.
+	/*if(numos >= MAXNUMOS)
+	{
+		printf("maximum allowed number of object samples exceeded: terminating ...\n");
+		return 0;
+	}*/
 
 	return 1;
 }
@@ -647,14 +691,18 @@ int load_object_samples(const char* folder)
 */
 
 #define MAXNUMBS 100000
-
+unsigned uTotalBSRIDFiles;
 static int numbs = 0;
 
 static uint8_t* bpixelss[MAXNUMBS];
 int bnrowss[MAXNUMBS];
 int bncolss[MAXNUMBS];
+unsigned ubgRidBufSize;
 
-//loading nonfaces
+/* loading nonfaces : nonfaces/list.txt
+ * 00000-IMG_2121.JPG.rid
+ *
+ */
 int load_background_images(char* folder)
 {
 	FILE* list;
@@ -671,10 +719,17 @@ int load_background_images(char* folder)
 	if(!list)
 		return 0;
 
+	//get the total rid files number.
+	if(fscanf(list, "%u", &uTotalBSRIDFiles) == 1){
+		printf("total %u nonface rid files\n", uTotalBSRIDFiles);
+	}else{
+		printf("%s reading first line error %d\n", errno);
+		return 0;
+	}
 	//
 	while(fscanf(list, "%s", name)==1 && numbs<MAXNUMBS)
 	{
-		//
+		//rid file name in nonfaces : 00000-IMG_2121.JPG.rid
 		sprintf(path, "%s/%s", folder, name);
 
 		//
@@ -708,8 +763,8 @@ struct
 
 /*
 o  : static float os[MAXMAXNUMSAMPLES];
-r : global : ors[] = object row size array, 
-c : global ocs[] : object column array, 
+r : global : ors[] = object row size array,
+c : global ocs[] : object column array,
 s : global oss[] : object size array
 
 */
@@ -754,7 +809,7 @@ int classify_region(float* o, float r, float c, float s, uint8_t pixels[], int n
 }
 
 //save detctor to a file
-int save_to_file(char* path)
+int saveDetector(char* path)
 {
 	int i, j;
 
@@ -787,7 +842,7 @@ int save_to_file(char* path)
 }
 
 //load a detctor from a file, d.
-int load_from_file(char* path)
+int loadDetector(char* path)
 {
 	int i, j;
 
@@ -1138,7 +1193,7 @@ float sample_training_data(int classs[], float rs[], float cs[], float ss[], uin
 /*
 maxnumstagestoappend : 		sscanf(argv[4], "%d", &maxnstages);
 sscanf(argv[5], "%f", &targetfpr);	//false positive rate : error postive / total detected objects
-sscanf(argv[7], "%f", &minstagetpr);	//minimum true positive rate : 
+sscanf(argv[7], "%f", &minstagetpr);	//minimum true positive rate :
 sscanf(argv[8], "%f", &maxstagefpr);	//maximum false positive rate : 0.5 is maximum because a random guess possibility is 0.5.
 					//A weak classifier should be better than or equal to a random guess. the fp objects will go to the next stage
 sscanf(argv[6], "%d", &tdepths);	//maximum decision tree depth. deeper gets slow response.
@@ -1168,7 +1223,7 @@ int append_stages_to_odetector(char* src, char* dst, int maxnumstagestoappend, f
 	int i, maxnumsamples, maxnumstages, np, nn;
 
 	//
-	if(!load_from_file(src))
+	if(!loadDetector(src))
 		return 0;
 
 	//odetector.numstages is "0" at first and then is added by the following learning append stage
@@ -1219,7 +1274,7 @@ int append_stages_to_odetector(char* src, char* dst, int maxnumstagestoappend, f
 		//
 		printf("\n");
 
-		if(save_to_file(dst))
+		if(saveDetector(dst))
 			printf("- saving partial results to '%s' ...\n", dst);
 		else
 			printf("- saving results to '%s' has failed ...\n", dst);
@@ -1283,7 +1338,7 @@ int main(int argc, char* argv[])
 		odetector.numstages = 0;//init
 
 		//detector d is saved to file
-		if(!save_to_file(argv[3]))
+		if(!saveDetector(argv[3]))
 			return 0;
 
 		//
@@ -1310,11 +1365,11 @@ int main(int argc, char* argv[])
 		//1 1e-6 6 0.980 0.5 1 d
 		sscanf(argv[4], "%d", &maxnstages);
 		sscanf(argv[5], "%f", &targetfpr);	//false positive rate : error postive / total detected objects
-		sscanf(argv[6], "%d", &tdepths);	//maximum decision tree depth. deeper gets slow response.
-		sscanf(argv[7], "%f", &minstagetpr);	//minimum true positive rate : 
+		sscanf(argv[6], "%d", &tdepths);		//maximum decision tree depth. deeper gets slow response.
+		sscanf(argv[7], "%f", &minstagetpr);	//minimum true positive rate :
 		sscanf(argv[8], "%f", &maxstagefpr);	//maximum false positive rate : 0.5 is maximum because a random guess possibility is 0.5.
 							//A weak classifier should be better than or equal to a random guess. the fp objects will go to the next stage
-		sscanf(argv[9], "%d", &maxnumtreesperstage);	//a tree is a weak classifier, a stage, en emsemble, is a strong classiffier with combining trees
+		sscanf(argv[9], "%d", &maxnumtreesperstage);	//a tree is a weak classifier, a stage, an emsemble, is a strong classiffier with combining trees
 
 		dst = argv[10];	//detector d in the file
 	}

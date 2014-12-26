@@ -155,13 +155,14 @@ def exportmirrored(im, r, c, s, folder, id, list):
 	#
 	# exploit mirror symmetry of the face
 	#
-
-	# flip image
+	#print(">>mirror:r=%d c=%d s=%d"%(r,c,s))
+	# flip image, horizontal , so the dim is not changed!
 	im = numpy.asarray(ImageOps.mirror(Image.fromarray(im)))
-
-	# flip column coordinate of the object
+	#print("<<mirror:r=%d c=%d s=%d"%(im.shape[0],im.shape[1],s))
+	# flip column, so the face bounding box is mirrored.
+	# the center of the bounding box is shifted in x-axis after the mirror, too.
 	c = im.shape[1] - c
-
+	#exit()
 	# export
 	export(im, r, c, s, folder, id, list)
 

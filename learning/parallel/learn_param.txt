@@ -1,0 +1,14 @@
+#parameters to build up training model
+#src detector path to load | faces sample path | nonfaces sample path | max stages
+#false positive rate | maximum decision tree depth | minimum true positive rate
+#maximum false positive rate | maxnumtreesperstage | target detector path to save
+#init detector
+1 1 d
+#append detector
+d faces nonfaces 1 1e-6 6 0.980 0.5 1 d
+d faces nonfaces 1 1e-6 6 0.980 0.5 1 d
+d faces nonfaces 1 1e-6 6 0.985 0.5 1 d
+d faces nonfaces 1 1e-6 6 0.990 0.5 2 d
+d faces nonfaces 1 1e-6 6 0.995 0.5 3 d
+d faces nonfaces 6 1e-6 6 0.997 0.5 10 d
+d faces nonfaces 10 1e-6 6 0.999 0.5 20 d
