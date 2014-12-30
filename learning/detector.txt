@@ -1,0 +1,48 @@
+#detector data structure:
+#header
+odetector.tsr								float	4 bytes
+odetector.tsc								float	4 bytes
+odetector.numstages							int		4 bytes
+
+#stage 0
+#number of trees in this stage0
+odetector.numtreess[0],						int		4 bytes
+#total numtreess[0] regression trees
+#odetector.rtreearrays[0][0]
+depth of odetector.rtreearrays[0][0]			int		4 bytes
+tcodes										int32_t*(2^depth-1)= 4 * (2^depth-1)
+lut											float *	2^d	= 4* (2^d)
+#odetector.rtreearrays[0][1]
+depth of odetector.rtreearrays[0][1]			int		4 bytes
+tcodes										int32_t*(2^depth-1)= 4 * (2^depth-1)
+lut											float *	2^d	= 4* (2^d)
+
+odetector.rtreearrays[0][2]
+odetector.rtreearrays[0][...]
+odetector.rtreearrays[0][odetector.numtreess[0] -1 ]
+#thresholds
+odetector.thresholds[0], 					float	4
+
+#stage 1
+#number of trees in this stage1
+odetector.numtreess[1],						int		4 bytes
+#total numtreess[1] regression trees
+odetector.rtreearrays[1][0]
+odetector.rtreearrays[1][1]
+odetector.rtreearrays[1][2]
+odetector.rtreearrays[1][...]
+odetector.rtreearrays[1][odetector.numtreess[1] -1 ]
+#thresholds
+odetector.thresholds[1], 					float	4
+
+#stage 2...(numstages-1)
+#number of trees in this stage 2...(numstages-1)
+odetector.numtreess[numstages-1],			int		4 bytes
+#total numtreess[numstages-1] regression trees
+odetector.rtreearrays[numstages-1][0]
+odetector.rtreearrays[numstages-1][1]
+odetector.rtreearrays[numstages-1][2]
+odetector.rtreearrays[numstages-1][...]
+odetector.rtreearrays[numstages-1][odetector.numtreess[numstages-1] -1 ]
+#thresholds
+odetector.thresholds[numstages-1], 			float	4

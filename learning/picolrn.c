@@ -175,6 +175,14 @@ uint32_t mwcrand()
 typedef struct
 {
 	int depth;
+
+	/* randomly genereated 2-pixel coordination to be used to compare pixel intensity.
+	 * 4 bytes: two (x,y) position pairs to be compaired, each byte is 0-255.
+	 * the dim of rid is normalized to 0-1.0 mapping to 0-255 coodination.
+	 * size of tcodes : (int32_t*)malloc(((1<<d)-1)*sizeof(int32_t));
+	 * each element, tcodes[n], is a decion feature in a node of a tree.
+	 * The tree has depth d, so the full complete binary tree has (2^d -1) nodes.
+	 */
 	int32_t* tcodes;
 
 	float* lut;
@@ -182,9 +190,13 @@ typedef struct
 } rtree;
 
 /*
-tcode : 4 bytes for (x,y) position used to compare pixel intensity
-	x is 2 bytes and y is 2 bytes, too.
-
+ * pixels : rid raw data
+ * r,c : bounding box center at (row,col)
+ * nrows, ncols : object sample's dimension of rid file
+ * ldim : the column of a rid raw data, it's a row-major of 2-d pixel array
+ * sr, sc : currently it's diameter of a bounding box, s, because tsr and tsc are 1.0 only.
+ * tcode : randomly genereated 2-pixel pair position for later comparison to generate decision tree
+ * 4 bytes (x0,y0,x1,y1), x, y is one byte which is 0-255.
 */
 int bintest(int tcode, int r, int c, int sr, int sc, uint8_t pixels[],
 			int nrows, int ncols, int ldim)
@@ -194,6 +206,14 @@ int bintest(int tcode, int r, int c, int sr, int sc, uint8_t pixels[],
 	int8_t* p = (int8_t*)&tcode;
 
 	//p[0],p[1] : the first pixel
+	/* an object bounding box (r,c,s) is virtually normalized to 1.0 x 1.0 or 256x256
+	 * and p[0],p[1],p[2],p[3] are x,y positions normalized to -128-127, so the range is 256.
+	 * now transform [-128, 127] to [-0.5,0.5] ==> p[n]/256 -> [-0.5,0.5]
+	 * The real coordinate is box center (r,c) + offset transformed:
+	 * a pixel coordination: <r,c> + <(p/256)*sr, (p/256)*sc>,
+	 * where sc and sr is the diameter of the face bounding box.
+	 * since tsr and tsc are 1.0 only, sr,sc are equal to diameter of the boundong box.
+	 */
 	r1 = (256*r + p[0]*sr)/256;
 	c1 = (256*c + p[1]*sc)/256;
 	//p[2],p[3] : the second pixel
@@ -211,6 +231,10 @@ int bintest(int tcode, int r, int c, int sr, int sc, uint8_t pixels[],
 	return pixels[r1*ldim+c1]<=pixels[r2*ldim+c2];
 }
 
+/*
+ * t : one tree {depth, tcode, lut}
+ *
+ */
 float get_rtree_output(rtree* t, int r, int c, int sr, int sc, uint8_t pixels[],
 					   int nrows, int ncols, int ldim)
 {
@@ -219,11 +243,21 @@ float get_rtree_output(rtree* t, int r, int c, int sr, int sc, uint8_t pixels[],
 	//
 	idx = 0;
 
-	for(d=0; d<t->depth; ++d)
+	/*
+	 * tcodes : the internal nodes of a tree. each node contains a feature to check.
+	 * A feature is a two-pixel pair coordination to compare the pixel intensity.
+	 * 			   0						0
+	 * 	   1		 	     2				1
+	 *   3    4	     5      6			2
+	 * 7  8  9 10  11 12  13 14			3
+	 * the left descendent of node i is (2*i + 1)
+	 * the right descendent of node i is (2*i + 2)
+	 */
+	for(d=0; d<t->depth; ++d)//iterate over tree depth by bintest.
 		if( bintest(t->tcodes[idx], r, c, sr, sc, pixels, nrows, ncols, ldim) )
-			idx = 2*idx + 2;
+			idx = 2*idx + 2;	//bintest > 0, the right descendent node of a node idx of a full binary tree
 		else
-			idx = 2*idx + 1;
+			idx = 2*idx + 1;//bintest <=0, the left descendent node of a node idx of a full binary tree
 
 	//
 	return t->lut[ idx - ((1<<t->depth)-1) ];
@@ -232,9 +266,9 @@ float get_rtree_output(rtree* t, int r, int c, int sr, int sc, uint8_t pixels[],
 //a binary tree of depth, the total nodes of the rtree are 1+2+4+... 2^(depth-1)= 2^depth -1= (1<<depth) -1
 int allocate_rtree_data(rtree* t, int d)
 {
-	//
+	//sizeof(int32_t) * (2^d -1)
 	t->tcodes = (int32_t*)malloc(((1<<d)-1)*sizeof(int32_t));
-
+	//sizeof(float) * (2^d)
 	t->lut = (float*)malloc((1<<d)*sizeof(float));
 
 	if(!t->tcodes || !t->lut)
@@ -271,7 +305,7 @@ int deallocate_rtree_data(rtree* t, int d)
 
 /*save the regression tree
 a binary tree of depth, the total nodes are 1+2+4+... 2^(depth-1)= 2^depth -1= 1<<depth -1
-t->tcodes : tree nodes ,
+t->tcodes : full binary tree nodes ,
 t->lut : ???
 
 */
@@ -292,8 +326,9 @@ int load_rtree_from_file(rtree* t, FILE* f)
 
 	if(!allocate_rtree_data(t, d))//allocating the buffer to  store detector to ram
 		return 0;
-
+	//the total nodes of a full binary tree having depth d. (2^d -1)
 	fread(t->tcodes, sizeof(int32_t), (1<<d)-1, f);//read the data from a file
+	//2^d
 	fread(t->lut, sizeof(float), 1<<d, f);
 
 	return 1;
@@ -314,7 +349,10 @@ indsnum : np + nn, total number of the training samples to be processed
 
 TODO : ???? the error calculation does not seem to match section 2.1.
 */
-float get_split_error(int tcode, float tvals[], int rs[], int cs[], int srs[], int scs[], uint8_t* pixelss[], int nrowss[], int ncolss[], int ldims[], double ws[], int inds[], int indsnum)
+float get_split_error(int tcode, float tvals[], int rs[], int cs[],
+					  int srs[], int scs[], uint8_t* pixelss[],
+					  int nrowss[], int ncolss[], int ldims[],
+					  double ws[], int inds[], int indsnum)
 {
 	int i, j;
 
@@ -337,7 +375,8 @@ float get_split_error(int tcode, float tvals[], int rs[], int cs[], int srs[], i
 			wtvalsum[c] += ws[inds[i]]*tvals[inds[i]];//sum up weighted  of ground truths in cluster c
 			wtvalsumsqr[c] += ws[inds[i]]*SQR(tvals[inds[i]]);
 		*/
-		if( bintest(tcode, rs[inds[i]], cs[inds[i]], srs[inds[i]], scs[inds[i]], pixelss[inds[i]], nrowss[inds[i]], ncolss[inds[i]], ldims[inds[i]]) )
+		if( bintest(tcode, rs[inds[i]], cs[inds[i]], srs[inds[i]], scs[inds[i]],
+			pixelss[inds[i]], nrowss[inds[i]], ncolss[inds[i]], ldims[inds[i]]) )
 		{//the image is in cluster/group 1
 			wsum1 += ws[inds[i]];//sum up weight of cluster 1 images
 			wtvalsum1 += ws[inds[i]]*tvals[inds[i]];//sum up weighted  of ground truths in C1
@@ -366,7 +405,9 @@ float get_split_error(int tcode, float tvals[], int rs[], int cs[], int srs[], i
 inds : an array of total indsum integers init as {0,1,2,3... indsnum-1}
 indsnum : np + nn, total number of the training samples to be processed
 */
-int split_training_data(int tcode, float tvals[], int rs[], int cs[], int srs[], int scs[], uint8_t* pixelss[], int nrowss[], int ncolss[], int ldims[], double ws[], int inds[], int indsnum)
+int split_training_data(int tcode, float tvals[], int rs[], int cs[], int srs[],
+						int scs[], uint8_t* pixelss[], int nrowss[], int ncolss[],
+						int ldims[], double ws[], int inds[], int indsnum)
 {
 	int stop;
 	int i, j;
@@ -382,7 +423,8 @@ int split_training_data(int tcode, float tvals[], int rs[], int cs[], int srs[],
 	while(!stop)
 	{
 		//
-		while( !bintest(tcode, rs[inds[i]], cs[inds[i]], srs[inds[i]], scs[inds[i]], pixelss[inds[i]], nrowss[inds[i]], ncolss[inds[i]], ldims[inds[i]]) )
+		while( !bintest(tcode, rs[inds[i]], cs[inds[i]], srs[inds[i]], scs[inds[i]],
+			pixelss[inds[i]], nrowss[inds[i]], ncolss[inds[i]], ldims[inds[i]]) )
 		{
 			if( i==j )
 				break;
@@ -390,7 +432,8 @@ int split_training_data(int tcode, float tvals[], int rs[], int cs[], int srs[],
 				++i;
 		}
 
-		while( bintest(tcode, rs[inds[j]], cs[inds[j]], srs[inds[j]], scs[inds[j]], pixelss[inds[j]], nrowss[inds[j]], ncolss[inds[j]], ldims[inds[j]]) )
+		while( bintest(tcode, rs[inds[j]], cs[inds[j]], srs[inds[j]], scs[inds[j]],
+			pixelss[inds[j]], nrowss[inds[j]], ncolss[inds[j]], ldims[inds[j]]) )
 		{
 			if( i==j )
 				break;
@@ -414,7 +457,8 @@ int split_training_data(int tcode, float tvals[], int rs[], int cs[], int srs[],
 	n0 = 0;
 
 	for(i=0; i<indsnum; ++i)
-		if( !bintest(tcode, rs[inds[i]], cs[inds[i]], srs[inds[i]], scs[inds[i]], pixelss[inds[i]], nrowss[inds[i]], ncolss[inds[i]], ldims[inds[i]]) )
+		if( !bintest(tcode, rs[inds[i]], cs[inds[i]], srs[inds[i]], scs[inds[i]],
+			pixelss[inds[i]], nrowss[inds[i]], ncolss[inds[i]], ldims[inds[i]]) )
 			++n0;
 
 	//
@@ -428,7 +472,9 @@ maxd : maximum tree depth to traverse
 inds : an array of total indsum integers init as {0,1,2,3... indsnum-1}
 indsnum : np + nn, total number of the training samples to be processed
 */
-int grow_subtree(rtree* t, int nodeidx, int d, int maxd, float tvals[], int rs[], int cs[], int srs[], int scs[], uint8_t* pixelss[], int nrowss[], int ncolss[], int ldims[], double ws[], int inds[], int indsnum)
+int grow_subtree(rtree* t, int nodeidx, int d, int maxd, float tvals[], int rs[],
+				 int cs[], int srs[], int scs[], uint8_t* pixelss[], int nrowss[],
+				 int ncolss[], int ldims[], double ws[], int inds[], int indsnum)
 {
 	int i, nrands;
 
@@ -471,32 +517,47 @@ int grow_subtree(rtree* t, int nodeidx, int d, int maxd, float tvals[], int rs[]
 		t->tcodes[nodeidx] = 0;
 
 		//????
-		grow_subtree(t, 2*nodeidx+1, d+1, maxd, tvals, rs, cs, srs, scs, pixelss, nrowss, ncolss, ldims, ws, inds, indsnum);
-		grow_subtree(t, 2*nodeidx+2, d+1, maxd, tvals, rs, cs, srs, scs, pixelss, nrowss, ncolss, ldims, ws, inds, indsnum);
+		grow_subtree(t, 2*nodeidx+1, d+1, maxd, tvals, rs, cs, srs, scs, pixelss,
+					 nrowss, ncolss, ldims, ws, inds, indsnum);
+		grow_subtree(t, 2*nodeidx+2, d+1, maxd, tvals, rs, cs, srs, scs, pixelss,
+					 nrowss, ncolss, ldims, ws, inds, indsnum);
 
 		return 1;
 	}
 
-	// generate a position list. each has a 2-pixel pair (4 bytes) to compare the pixel intensity. This is very similar to BRIEF keypoint descriptor.
-	nrands = NRANDS;	//total 1024 2-pixel pairs are generated randomly. This 2-pixel pair will be an internal node in decision tree.
+	/* generate a position list. each has a 2-pixel pair (4 bytes) to
+	 * compare the pixel intensity.
+	 * This is very similar to BRIEF keypoint descriptor.
+	 */
+	nrands = NRANDS;	//total 1024 2-pixel pairs are generated randomly.
+					//This 2-pixel pair will be an internal node in decision tree.
 
-	/*How to calculate Weighted Mean Square Error to generate a decision tree?
-	Find the best attribute/feature to split the training set. Attribute/feature of an image is a two-pixel comparision.
-	So there are many possible splits of a training set by the any two-pixel pair, because there are many two-pixel pair in an image.
-	The training samples/set is divided into two classes/groups(+1,-1) by each feature generated from generate_binary_test()
-	the split is a "hypothesis" to face(+1) and non-face (-1), so it may be different to the ground-truth.
-	Each feature will be a root node of binary stump : http://en.wikipedia.org/wiki/Decision_stump
-	Each feature then splits the whole training set into two subtrees, then the Weighted Mean Sqaure Error can be calculated.
-	Then find the minimum WSME from all the calculated WSME for each node(feature).
-	The feature which has the minumum WMSE is the root node to split the training set.
-	This recursive iteration from tree top to the desired depth. It's not possible to use all possible features to generate the decision tree.
-	*/
+	/* How to calculate Weighted Mean Square Error to generate a decision tree?
+	 * Find the best attribute/feature to split the training set.
+	 * Attribute/feature of an image is a two-pixel comparision.
+	 * So there are many possible splits of a training set by the any
+	 * two-pixel pair, because there are many two-pixel pair in an image.
+	 * The training samples/set is divided into two classes/groups(+1,-1)
+	 * by each feature generated from generate_binary_test()
+	 * the split is a "hypothesis" to face(+1) and non-face (-1),
+	 * so it may be different to the ground-truth.
+	 * Each feature will be a root node of binary stump :
+	 * http://en.wikipedia.org/wiki/Decision_stump
+	 * Each feature then splits the whole training set into two subtrees,
+	 * then the Weighted Mean Sqaure Error can be calculated.
+	 * Then find the minimum WSME from all the calculated WSME for each node(feature).
+	 * The feature which has the minumum WMSE is the root node to split the training set.
+	 * This recursive iteration from tree top to the desired depth.
+	 * It's not possible to use all possible features to generate the decision tree.
+	 */
 	for(i=0; i<nrands; ++i)	//total 1024 pairs(features) to be used for split the training sample
 		tcodes[i] = mwcrand();//get the randomly genereated 2-pixel pair position for later comparison to generate decision tree
 
 	#pragma omp parallel for
 	for(i=0; i<nrands; ++i)//compute every WMSE by the 2-pixel pairs stored in tcodes array.
-		spliterrors[i] = get_split_error(tcodes[i], tvals, rs, cs, srs, scs, pixelss, nrowss, ncolss, ldims, ws, inds, indsnum);
+		spliterrors[i] = get_split_error(tcodes[i], tvals, rs, cs, srs, scs,
+										 pixelss, nrowss, ncolss, ldims, ws,
+										inds, indsnum);
 
 	//the spliterrors array contains every WMSE calculated by the binary_test pixel pair.
 	bestspliterror = spliterrors[0];
@@ -511,11 +572,14 @@ int grow_subtree(rtree* t, int nodeidx, int d, int maxd, float tvals[], int rs[]
 
 	//split the training data into two sub-trees by the minimum WSME attribute/feature
 	//which becomes an internal node of the decision tree.
-	n0 = split_training_data(t->tcodes[nodeidx], tvals, rs, cs, srs, scs, pixelss, nrowss, ncolss, ldims, ws, inds, indsnum);
+	n0 = split_training_data(t->tcodes[nodeidx], tvals, rs, cs, srs, scs, pixelss,
+							 nrowss, ncolss, ldims, ws, inds, indsnum);
 
 	//now we get two subtrees after the split. This is recursive iteration to split the two sub-trees.
-	grow_subtree(t, 2*nodeidx+1, d+1, maxd, tvals, rs, cs, srs, scs, pixelss, nrowss, ncolss, ldims, ws, &inds[0], n0);
-	grow_subtree(t, 2*nodeidx+2, d+1, maxd, tvals, rs, cs, srs, scs, pixelss, nrowss, ncolss, ldims, ws, &inds[n0], indsnum-n0);
+	grow_subtree(t, 2*nodeidx+1, d+1, maxd, tvals, rs, cs, srs, scs, pixelss,
+				 nrowss, ncolss, ldims, ws, &inds[0], n0);
+	grow_subtree(t, 2*nodeidx+2, d+1, maxd, tvals, rs, cs, srs, scs, pixelss,
+				 nrowss, ncolss, ldims, ws, &inds[n0], indsnum-n0);
 
 	//
 	return 1;
@@ -525,7 +589,9 @@ int grow_subtree(rtree* t, int nodeidx, int d, int maxd, float tvals[], int rs[]
 
 n : np + nn, total number of the training samples
 */
-int grow_rtree(rtree* t, int d, float tvals[], int rs[], int cs[], int srs[], int scs[], uint8_t* pixelss[], int nrowss[], int ncolss[], int ldims[], double ws[], int n)
+int grow_rtree(rtree* t, int d, float tvals[], int rs[], int cs[], int srs[],
+			   int scs[], uint8_t* pixelss[], int nrowss[], int ncolss[],
+			   int ldims[], double ws[], int n)
 {
 	int i;
 	int* inds;
@@ -544,7 +610,8 @@ int grow_rtree(rtree* t, int d, float tvals[], int rs[], int cs[], int srs[], in
 	free(inds);
 	return !!ret;
 	*/
-	if(!grow_subtree(t, 0, 0, d, tvals, rs, cs, srs, scs, pixelss, nrowss, ncolss, ldims, ws, inds, n))
+	if(!grow_subtree(t, 0, 0, d, tvals, rs, cs, srs, scs, pixelss, nrowss,
+					ncolss, ldims, ws, inds, n))
 	{
 		free(inds);
 		return 0;
@@ -787,6 +854,7 @@ struct
 } odetector;
 
 /*
+ * classifying an object whether it's an object(+1) or not (-1)
 o  : regression value
 r : object sample center at row
 c : object sample center at column
@@ -813,28 +881,31 @@ int classify_region(float* o, float r, float c, float s, uint8_t pixels[],
 	ir = (int)( r );
 	ic = (int)( c );
 
-	isr = (int)( odetector.tsr*s );
-	isc = (int)( odetector.tsc*s );
+	//currently odetector.tsr = odetector.tsc = 1.0.
+	isr = (int)( odetector.tsr*s );//=s, object sample center's diameter
+	isc = (int)( odetector.tsc*s );//=s, object sample center's diameter
 
 	//
 	i = 0;
 
 	while(i < odetector.numstages)
 	{
-		//
+		//get the sum of all the trees output from a training sample.
 		for(j=0; j<odetector.numtreess[i]; ++j)
 			*o += get_rtree_output(&odetector.rtreearrays[i][j], ir, ic, isr,
 								   isc, pixels, nrows, ncols, ldim);
 
-		//
+		//The output sum of the trees in this stage is less than threshold,
+		//reject it to negative
 		if(*o <= odetector.thresholds[i])
-			return -1;
+			return -1;//negative sample
 
-		//
+		//the positive samples are passed to the second stage to verify again.
 		++i;
 	}
 
-	//
+	//An object sample has passed all the stages and its output sum is
+	//greater than the threshold, so it's a positive sample.(+1)
 	return 1;
 }
 
@@ -989,7 +1060,9 @@ int learn_new_stage(int stageidx, int tdepth, float mintpr, float maxfpr, int ma
 		// grow a tree ...
 		t = getticks();
 
-		grow_rtree(&odetector.rtreearrays[stageidx][numtrees], tdepth, tvals, irs, ics, isrs, iscs, pixelss, nrowss, ncolss, ncolss, ws, np+nn);
+		grow_rtree(&odetector.rtreearrays[stageidx][numtrees], tdepth, tvals,
+				   irs, ics, isrs, iscs, pixelss, nrowss, ncolss, ncolss,
+					ws, np+nn);
 
 		printf("\r");
 		printf("	tree %d (%f [sec]) ...", numtrees+1, getticks()-t);
@@ -1109,6 +1182,7 @@ float sample_training_data(int classs[], float rs[], float cs[], float ss[],
 
 	/*
 	 * positive (face) object samples
+	 * numos : numbers of bounding boxes loaded into ram
 	 * ors, ocs and oss have been setup in load_object_samples.
 	 * ors[] = object bounding box center at row array
 	 * ocs[] : object bounding box center at column array
@@ -1118,15 +1192,15 @@ float sample_training_data(int classs[], float rs[], float cs[], float ss[],
 	 * oncolss : rid's column
 	 * os[]: regression value of the object sample
 	 */
-	for(i=0; i<numos; ++i)
+	for(i=0; i<numos; ++i)//classifying an object i whether it's an object(+1) or not (-1).
 		if( classify_region(&os[n], ors[i], ocs[i], oss[i], opixelss[i],
 			onrowss[i], oncolss[i], oncolss[i])>0 )
-		{
-			//
+		{//This sample i is a positive sample after checking the decision tree.
+			//store sample's bounding box center
 			rs[n] = ors[i];
 			cs[n] = ocs[i];
 			ss[n] = oss[i];
-
+			//store its rid raw file and raw file's dim
 			pixelss[n] = opixelss[i];
 			nrowss[n] = onrowss[i];
 			ncolss[n] = oncolss[i];
@@ -1187,18 +1261,18 @@ float sample_training_data(int classs[], float rs[], float cs[], float ss[],
 			if(s<24)
 				continue;
 
-			//
+			//classifying an object whether it's an object(+1) or not (-1).
 			if( classify_region(&o, r, c, s, pixels, nrows, ncols, ncols)>0 )
 			{
 				//we have a false positive ...
 				#pragma omp critical
 				{
 					if(n<maxn)
-					{
+					{	//store bounding box of the nonobject
 						rs[n] = r;
 						cs[n] = c;
 						ss[n] = s;
-
+						//store rid data and its dim of the nonobject
 						pixelss[n] = pixels;
 						nrowss[n] = nrows;
 						ncolss[n] = ncols;
