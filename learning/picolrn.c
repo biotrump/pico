@@ -181,10 +181,14 @@ typedef struct
 	 * the dim of rid is normalized to 0-1.0 mapping to 0-255 coodination.
 	 * size of tcodes : (int32_t*)malloc(((1<<d)-1)*sizeof(int32_t));
 	 * each element, tcodes[n], is a decion feature in a node of a tree.
-	 * The tree has depth d, so the full complete binary tree has (2^d -1) nodes.
+	 * tcodes[] : The tree has depth d, so the full complete binary tree has (2^d -1) nodes.
 	 */
 	int32_t* tcodes;
 
+	 /* The level at d+1 has 2^d nodes. lut[] contains these 2^d nodes.
+	  * These nodes can be regarded as leaf nodes.
+	  * these nodes are the regression value after the tree traversal from the root.
+	 */
 	float* lut;
 
 } rtree;
@@ -231,9 +235,13 @@ int bintest(int tcode, int r, int c, int sr, int sc, uint8_t pixels[],
 	return pixels[r1*ldim+c1]<=pixels[r2*ldim+c2];
 }
 
-/*
+/* The object sample is input to get the bintest result from a decision tree.
  * t : one tree {depth, tcode, lut}
- *
+ * tcode : 2-pixel coordination pair. The internal nodes of a full complete binary tree.
+ * an object bounding box center at (r,c) with diameter sr=sc=s
+ * pixels : rid buffer
+ * nrows, ncols : rid's dimension
+ * ldim : rid is row-major 2d array, ldim is the column size
  */
 float get_rtree_output(rtree* t, int r, int c, int sr, int sc, uint8_t pixels[],
 					   int nrows, int ncols, int ldim)
@@ -254,21 +262,48 @@ float get_rtree_output(rtree* t, int r, int c, int sr, int sc, uint8_t pixels[],
 	 * the right descendent of node i is (2*i + 2)
 	 */
 	for(d=0; d<t->depth; ++d)//iterate over tree depth by bintest.
+	{
 		if( bintest(t->tcodes[idx], r, c, sr, sc, pixels, nrows, ncols, ldim) )
 			idx = 2*idx + 2;	//bintest > 0, the right descendent node of a node idx of a full binary tree
 		else
 			idx = 2*idx + 1;//bintest <=0, the left descendent node of a node idx of a full binary tree
+		printf("(d=%d, idx=%d)\n", d, idx);
+	}
+	/* A full complete binary tree with depth d (from 0 - (d-1)) which has 2^d -1 nodes, tcodes.
+	 * The level at d+1 has 2^d nodes. lut[] contains these 2^d nodes.
+	 *
+	 * idx points to the next level of depth d (from 0),
+	 * ie, idx points to level d (d is from 0),
+	 * so idx points to depth (d+1).
+	 * all nodes at depth (d+1) are the leaf nodes which has float-type value.
+	 * the leaf node's idx starts from (2^d-2) at depth (d+1),
+	 * because the tree of depth d starts from 0 to 2(d-1)-2.
+	 * if d is 6, internal nodes starts from 0 to 62, total 63 nodes = 2^6-1.
+	 * so level 7 starts from 63 to 2^7-2=126.
+	 * offset in level 7 (level base is 1) :  (63-63) to (2^7-2-63) = 0 to 63=> total 64 nodes.
+	 * idx - ((1<<t->depth)-1) gets the offset of bottom nodes in a full binary tree.
+	 * lut[] : is a array for the level d nodes with float-type values.
+	 */
+	printf("lut[]=%f, [%d]\n", t->lut[ idx - ((1<<t->depth)-1) ], idx - ((1<<t->depth)-1));
 
-	//
+	//lut[] = sizeof(float) * (2^d)
 	return t->lut[ idx - ((1<<t->depth)-1) ];
 }
 
 //a binary tree of depth, the total nodes of the rtree are 1+2+4+... 2^(depth-1)= 2^depth -1= (1<<depth) -1
 int allocate_rtree_data(rtree* t, int d)
 {
-	//sizeof(int32_t) * (2^d -1)
+	/* tcodes are the total internal nodes of a full complete binary tree which has depth d (from 1)
+	 * totoal internal nodes are (2^d -1),
+	 * each internal node has sizeof(int32_t),
+	 * so the total bytes of the internal nodes are (2^d -1) bytes.
+	 */
 	t->tcodes = (int32_t*)malloc(((1<<d)-1)*sizeof(int32_t));
-	//sizeof(float) * (2^d)
+
+	/* The nodes of a full complete binary tree at level d (d is from 0)
+	 * = 2^d nodes in level d (d is from 0).
+	 * level d are leaf nodes which has float-type value.
+	 */
 	t->lut = (float*)malloc((1<<d)*sizeof(float));
 
 	if(!t->tcodes || !t->lut)
@@ -469,7 +504,7 @@ int split_training_data(int tcode, float tvals[], int rs[], int cs[], int srs[],
 nodeidx : init from 0
 d : current tree depth, init from 0
 maxd : maximum tree depth to traverse
-inds : an array of total indsum integers init as {0,1,2,3... indsnum-1}
+inds[] : an array of total indsum elements init as {0,1,2,3... indsnum-1}
 indsnum : np + nn, total number of the training samples to be processed
 */
 int grow_subtree(rtree* t, int nodeidx, int d, int maxd, float tvals[], int rs[],
@@ -478,7 +513,15 @@ int grow_subtree(rtree* t, int nodeidx, int d, int maxd, float tvals[], int rs[]
 {
 	int i, nrands;
 
-	int32_t tcodes[2048];
+	int32_t tcodes[2048];//randomly generated 2-pixel coordinations.
+	/* tcodes[] : Every 2-pixel pair is a feature which is a decision maker.
+	 * It will split the object sample to left or right subtree.
+	 * All samples passing the decision maker go into two subtrees.
+	 * WMSE is computed by the two subtrees classified by the feature/hypothesis.
+	 * We will select the minimum WMSE by the feature/hypothesis in tcodes[];
+	 * The selected feature/hypothesis is used in the internal node.
+	 * The samples going to two subtrees are recursively classified till the max depth.
+	 */
 	float spliterrors[2048], bestspliterror;
 
 	int n0;
@@ -490,7 +533,7 @@ int grow_subtree(rtree* t, int nodeidx, int d, int maxd, float tvals[], int rs[]
 		int lutidx;
 		double tvalaccum, wsum;
 
-		//
+		//lutidx : offset from 0 for the bottom level.
 		lutidx = nodeidx - ((1<<maxd)-1);
 
 		// compute output: a simple average
@@ -511,16 +554,20 @@ int grow_subtree(rtree* t, int nodeidx, int d, int maxd, float tvals[], int rs[]
 		//
 		return 1;
 	}
-	else if(indsnum <= 1)
-	{	//only one sample in the split is left, so terminates the split.
+	else if(indsnum <= 1)//indsnum=(np + nn):total number of the training samples to be processed
+	{	//only one sample in the split, so terminates the split.
 		//terminal node
 		t->tcodes[nodeidx] = 0;
 
-		//????
+		/* nodeidx : the node index of a full complete binary tree.
+		 * The left chid		->	2*nodeidx + 1
+		 * The right child	->	2*nodeidx + 2
+		 *
+		 */
 		grow_subtree(t, 2*nodeidx+1, d+1, maxd, tvals, rs, cs, srs, scs, pixelss,
-					 nrowss, ncolss, ldims, ws, inds, indsnum);
+					 nrowss, ncolss, ldims, ws, inds, indsnum);//left sub tree
 		grow_subtree(t, 2*nodeidx+2, d+1, maxd, tvals, rs, cs, srs, scs, pixelss,
-					 nrowss, ncolss, ldims, ws, inds, indsnum);
+					 nrowss, ncolss, ldims, ws, inds, indsnum);//right sub tree
 
 		return 1;
 	}
@@ -561,7 +608,7 @@ int grow_subtree(rtree* t, int nodeidx, int d, int maxd, float tvals[], int rs[]
 
 	//the spliterrors array contains every WMSE calculated by the binary_test pixel pair.
 	bestspliterror = spliterrors[0];
-	t->tcodes[nodeidx] = tcodes[0];
+	t->tcodes[nodeidx] = tcodes[0];//???
 
 	for(i=1; i<nrands; ++i)//get the minimum WMSE as the best attribute to split the training sample to build decision tree.
 		if(bestspliterror > spliterrors[i])
@@ -586,41 +633,32 @@ int grow_subtree(rtree* t, int nodeidx, int d, int maxd, float tvals[], int rs[]
 }
 
 /*
-
 n : np + nn, total number of the training samples
 */
 int grow_rtree(rtree* t, int d, float tvals[], int rs[], int cs[], int srs[],
 			   int scs[], uint8_t* pixelss[], int nrowss[], int ncolss[],
 			   int ldims[], double ws[], int n)
 {
-	int i;
+	int i,ret=0;
 	int* inds;
 
 	if(!allocate_rtree_data(t, d))
-		return 0;
+		return ret;
 
-	//
-	inds = (int*)malloc(n*sizeof(int));
+	//inds[] : an array which has n=(np + nn) elements.
+	if(inds = (int*)malloc(n*sizeof(int))){
+		//inds[]={0,1,2,3,...,n-1}
+		for(i=0; i<n; ++i)
+			inds[i] = i;//0,1,2,3,4
 
-	for(i=0; i<n; ++i)
-		inds[i] = i;//0,1,2,3,4
-
-	/*
-	ret = grow_subtree();
-	free(inds);
-	return !!ret;
-	*/
-	if(!grow_subtree(t, 0, 0, d, tvals, rs, cs, srs, scs, pixelss, nrowss,
-					ncolss, ldims, ws, inds, n))
-	{
+		//if(!grow_subtree(t, 0, 0, d, tvals, rs, cs, srs, scs, pixelss, nrowss,
+		//				ncolss, ldims, ws, inds, n))
+		ret = grow_subtree(t, 0, 0, d, tvals, rs, cs, srs, scs, pixelss, nrowss,
+						ncolss, ldims, ws, inds, n))
 		free(inds);
-		return 0;
+		return !!ret;
 	}
-	else
-	{
-		free(inds);
-		return 1;
-	}
+	return ret;
 }
 
 /*
