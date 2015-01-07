@@ -654,7 +654,7 @@ int grow_rtree(rtree* t, int d, float tvals[], int rs[], int cs[], int srs[],
 		//if(!grow_subtree(t, 0, 0, d, tvals, rs, cs, srs, scs, pixelss, nrowss,
 		//				ncolss, ldims, ws, inds, n))
 		ret = grow_subtree(t, 0, 0, d, tvals, rs, cs, srs, scs, pixelss, nrowss,
-						ncolss, ldims, ws, inds, n))
+						ncolss, ldims, ws, inds, n);
 		free(inds);
 		return !!ret;
 	}
