@@ -44,12 +44,13 @@ TARGET_LINK_LIBRARIES( cam-play ${OpenCV_LIBS}
 	${V4L2_LIB_OUT}/libv4l2-lib.a
 	${DSP_ICA_LIBS}/libdsp-ica.a)
 
+
 #
-ADD_EXECUTABLE( v4l2-cap
-	v4l2-cap.c
+ADD_EXECUTABLE( pulse-v4l2
+	pulse-v4l2.c
 	)
 #message(">>> DSP_ICA_LIBS::${DSP_ICA_LIBS}" )
 #dynamic or static link
-TARGET_LINK_LIBRARIES( v4l2-cap ${OpenCV_LIBS}
+TARGET_LINK_LIBRARIES( pulse-v4l2 ${OpenCV_LIBS}
 	${V4L2_LIB_OUT}/libv4l2-lib.a
 	${DSP_ICA_LIBS}/libdsp-ica.a)
