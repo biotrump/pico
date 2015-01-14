@@ -267,7 +267,7 @@ float get_rtree_output(rtree* t, int r, int c, int sr, int sc, uint8_t pixels[],
 			idx = 2*idx + 2;	//bintest > 0, the right descendent node of a node idx of a full binary tree
 		else
 			idx = 2*idx + 1;//bintest <=0, the left descendent node of a node idx of a full binary tree
-		printf("(d=%d, idx=%d)\n", d, idx);
+		//printf("(d=%d, idx=%d)\n", d, idx);
 	}
 
 	/*
@@ -284,7 +284,7 @@ float get_rtree_output(rtree* t, int r, int c, int sr, int sc, uint8_t pixels[],
 	 * the idx of the level d starts from (2^d-1).
 	 * So (idx - (2^d - 1)) is index in the level d with starting offset 0.
 	 */
-	printf("lut[]=%f, [%d]\n", t->lut[ idx - ((1<<t->depth)-1) ], idx - ((1<<t->depth)-1));
+	//printf("lut[]=%f, [%d]\n", t->lut[ idx - ((1<<t->depth)-1) ], idx - ((1<<t->depth)-1));
 
 	/* lut[] has the regression value in the bottom nodes
 	 * Return the regression value for the object.
@@ -920,9 +920,11 @@ int classifyObject(float* o, float r, float c, float s, uint8_t pixels[],
 	//regression value of a sample image.
 	*o = 0.0f;
 
-	//0 stage. it's in init phase only!
+	/* If this is the first time training, odetector.numstages = 0.
+	 * the decision tree is empty, so all samples are classified as "object/face" at first.
+	 */
 	if(!odetector.numstages)
-		return 1;
+		return 1;//assuming the object is face at the initial stage
 
 	//
 	ir = (int)( r );
@@ -1231,7 +1233,7 @@ float TrainedBySampleData(int classs[], float rs[], float cs[], float ss[],
 
 	t = getticks();
 
-	//
+	//The first time training, odetector.numstages is 0, because the tree is empty.
 	n = 0;
 	printf("[%s]: odetector.numstages=%d\n", __func__, odetector.numstages);
 
@@ -1267,7 +1269,7 @@ float TrainedBySampleData(int classs[], float rs[], float cs[], float ss[],
 			//
 			++n;
 		}
-
+	printf("face/objects classified #=%d/%d\n", n, i);
 	*np = n;//number of positive samples
 
 	/*
@@ -1292,7 +1294,7 @@ float TrainedBySampleData(int classs[], float rs[], float cs[], float ss[],
 
 	stop = 0;
 
-	#pragma omp parallel
+	//#pragma omp parallel
 	{
 		int thid;
 
@@ -1320,14 +1322,14 @@ float TrainedBySampleData(int classs[], float rs[], float cs[], float ss[],
 			if(s<24)
 				continue;
 
-			//classifying an object whether it's an object(+1) or not (-1).
+			//classifying an nonobject whether it's an object(+1) or not (-1).
 			if( classifyObject(&o, r, c, s, pixels, nrows, ncols, ncols)>0 )
 			{
 				//we have a false positive : FPR = false_postive / (false_positive + true_nagative)
 				#pragma omp critical
 				{
 					if(n<maxn)
-					{	//store bounding box of the nonobject
+					{	//store bounding box of the false positive nonobject
 						rs[n] = r;
 						cs[n] = c;
 						ss[n] = s;
@@ -1336,7 +1338,7 @@ float TrainedBySampleData(int classs[], float rs[], float cs[], float ss[],
 						nrowss[n] = nrows;
 						ncolss[n] = ncols;
 
-						os[n] = o;
+						os[n] = o;//regression value, it's 0.0 at the first time training.
 
 						classs[n] = 0;//the sample is an non-object, 0
 
@@ -1348,16 +1350,17 @@ float TrainedBySampleData(int classs[], float rs[], float cs[], float ss[],
 						stop = 1;
 				}
 			}//else it's true negative.
-
+			if(!stop){
 			#pragma omp atomic
 			++nw;//total negative
+			}
 		}
 	}
 
 	/*
 		print estimated true positive and false positive rates : false_postive / (false_positive + true_nagative)
 	*/
-
+	printf("maxn=%d, n=%d, nw=%d, nn=%d=\n", maxn, n, nw, *nn);
 	etpr = *np/(float)numos;
 	efpr = (float)( *nn/(double)nw );
 
