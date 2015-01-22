@@ -23,7 +23,9 @@
 #include <stdint.h>
 #include <errno.h>
 
-// hyperparameters
+/* hyperparameters
+ * The 2-pixel pairs used to compare the pixel intensity.
+ */
 #define NRANDS 1024
 
 /*
@@ -37,7 +39,9 @@
 unsigned uRidBufSize;
 
 /*  Raw Intensity Data
-	- loads an 8-bit grey image saved in the <RID> file format
+ * The RID area is bounded by +-0.75diameter, s, around a facebox center (r,c).
+ * So width and height of rid is 0.75*2 = 1.50X diameter, s, of a face box at (r,c)
+ 	- loads an 8-bit grey image saved in the <RID> file format
 	- <RID> file contents:
 		- a 32-bit signed integer w (image width)
 		- a 32-bit signed integer h (image height)
@@ -169,7 +173,15 @@ uint32_t mwcrand()
 }
 
 /*
-	regression trees
+ * regression trees
+ *
+*                         0                    d=0 , tcodes[]
+*                 1                2           d=1 , tcodes[]
+*             3      4        5        6       d=2 , tcodes[], tcodes[] has a depth 3 tree.
+*           7  8   9  10   11  12   13  14     d=depth=3 ==> lut[] contains only bottom nodes with float type.
+*           0  1   2   3    4   5    6   7     offset from 0 for lut[].
+* the idx of the level d starts from (2^d-1).
+* So (idx - (2^d - 1)) is index in the level d with starting offset 0.
 */
 
 typedef struct
@@ -199,7 +211,7 @@ typedef struct
  * nrows, ncols : object sample's dimension of rid file
  * ldim : the column of a rid raw data, it's a row-major of 2-d pixel array
  * sr, sc : currently it's diameter of a bounding box, s, because tsr and tsc are 1.0 only.
- * tcode : randomly genereated 2-pixel pair position for later comparison to generate decision tree
+ * tcode[] : randomly genereated 2-pixel pair position for later comparison to generate decision tree
  * 4 bytes (x0,y0,x1,y1), x, y is one byte which is 0-255.
 */
 int bintest(int tcode, int r, int c, int sr, int sc, uint8_t pixels[],
@@ -372,20 +384,18 @@ int load_rtree_from_file(rtree* t, FILE* f)
 }
 
 /*
-split the training sample set into two subsets by the attribute/feature stored in "tcode"
-which is a two-pixel pair array to compare.
-Calculate the wmse of the two subset after the split by a specific feature (a two pixel intensity comparison).
-refer to section 2.1 of the paper.
-http://forum.biotrump.com/viewtopic.php?f=8&t=326
-Please also refer to BRIEF to generate random 2 pixel pairs.
-
-tcode : a postion of 2 pixels, 4 bytes long,(x,y), x pos is 2 bytes and y pos is 2 bytes used to compare the two pixel intensity.
-tvals : ground truth table of all the training samples , -1.0f negative sample, +1.0f positive sample
-inds : an array of total indsum integers init as {0,1,2,3... indsnum-1}
-indsnum : np + nn, total number of the training samples to be processed
-
-TODO : ???? the error calculation does not seem to match section 2.1.
-*/
+ * Given a 2-pixel pair, a feature, to compare the 2-pixel intensity of every input training sample.
+ * The samples are then divided into 2 subtree by the result of comparing the two pixels' intensity.
+ * Sum up the WMSE0 and WMSE1 for this feature in the 2 subtrees.
+ * refer to section 2.1 of the paper.
+ * http://forum.biotrump.com/viewtopic.php?f=8&t=326
+ * tcode : 4 bytes,(x0,y0,x1,y1) tupple. x0,y0,x1,y1 is one byte. Coordination is normalized to 0-255.
+ * compare the pixel intensity of (x0,y0) to (x1,y1).
+ * tvals : ground truth table of all the training samples , -1.0f negative sample, +1.0f positive sample
+ * inds : an array of total indsum integers init as {0,1,2,3... indsnum-1}
+ * indsnum : np + nn, total number of the training samples to be processed
+ * TODO : ???? the error calculation does not seem to match section 2.1.
+ */
 float get_split_error(int tcode, float tvals[], int rs[], int cs[],
 					  int srs[], int scs[], uint8_t* pixelss[],
 					  int nrowss[], int ncolss[], int ldims[],
@@ -398,7 +408,6 @@ float get_split_error(int tcode, float tvals[], int rs[], int cs[],
 
 	double wmse0, wmse1;
 
-	//init vars
 	//http://forum.biotrump.com/viewtopic.php?f=8&t=326
 	wsum = wsum0 = wsum1 = wtvalsum0 = wtvalsum1 = wtvalsumsqr0 = wtvalsumsqr1 = 0.0;
 	/*Weighted Average:
@@ -428,9 +437,7 @@ float get_split_error(int tcode, float tvals[], int rs[], int cs[],
 
 		wsum += ws[inds[i]];//Sum up all weights of the training sample images. each sample has its weight.
 	}
-	// ??? wsum == (wsum1+ wsum0)
-
-	//??? This formula doesn't seem to match section 2.1 WMSE.
+	//refer to the eq-6 and eq-7 of my report.
 	wmse0 = wtvalsumsqr0 - SQR(wtvalsum0)/wsum0;//??? why divided by wsum0???
 	wmse1 = wtvalsumsqr1 - SQR(wtvalsum1)/wsum1;
 
@@ -503,11 +510,14 @@ int split_training_data(int tcode, float tvals[], int rs[], int cs[], int srs[],
 }
 
 /*
-nodeidx : init from 0
+nodeidx : the internal node index of the tree, init from 0 at root.
 d : current tree depth, init from 0
 maxd : maximum tree depth to traverse
+ws[]= all init to 1/n
 inds[] : an array of total indsum elements init as {0,1,2,3... indsnum-1}
-indsnum : np + nn, total number of the training samples to be processed
+indsnum : The total number of the training samples to be processed.
+	At first is "np + nn" and then the samples are splited into two subtrees.
+rs[],cs[]: center of the bounding face box. The <row, col> refer to the rid coordinate.
 */
 int grow_subtree(rtree* t, int nodeidx, int d, int maxd, float tvals[], int rs[],
 				 int cs[], int srs[], int scs[], uint8_t* pixelss[], int nrowss[],
@@ -535,36 +545,42 @@ int grow_subtree(rtree* t, int nodeidx, int d, int maxd, float tvals[], int rs[]
 		int lutidx;
 		double tvalaccum, wsum;
 
-		//lutidx : offset from 0 for the bottom level.
+		/*
+		 * nodeidx : the index of the bottom nodes at level maxd, offset from 0 at root.
+		 * lutidx : offset from 0 for the bottom level.
+		 */
 		lutidx = nodeidx - ((1<<maxd)-1);
 
 		// compute output: a simple average
 		tvalaccum = 0.0;
 		wsum = 0.0;
 
-		for(i=0; i<indsnum; ++i)
+		/*indsnum : the total numbers of samples to be used to train the subtree.
+		 * get the v_0_bar, and v_1_bar: the weighted average sum
+		 */
+		for(i=0; i< indsnum; ++i)
 		{
 			tvalaccum += ws[inds[i]]*tvals[inds[i]];//ground truth value * weight
 			wsum += ws[inds[i]];
 		}
-
-		if(wsum == 0.0)
+		//terminal nodes at the bottom maxd level.
+		if(wsum == 0.0)//????
 			t->lut[lutidx] = 0.0f;
 		else
-			t->lut[lutidx] = (float)( tvalaccum/wsum );
+			t->lut[lutidx] = (float)( tvalaccum/wsum );//the weighted average sum of this sub tree.
 
 		//
 		return 1;
 	}
-	else if(indsnum <= 1)//indsnum=(np + nn):total number of the training samples to be processed
-	{	//only one sample in the split, so terminates the split.
-		//terminal node
-		t->tcodes[nodeidx] = 0;
+	else if(indsnum <= 1)//only one sample is left to be trained, just terminates it.
+	{	/* It should be a terminal node, but pico wants to create a full binary tree,
+		* so keep diving down to the max depth of a full binary tree.
+		*/
+		t->tcodes[nodeidx] = 0;//terminal node, so no comparing pairs.
 
-		/* nodeidx : the node index of a full complete binary tree.
+		/* nodeidx : the current internal node index of a full complete binary tree.
 		 * The left chid		->	2*nodeidx + 1
 		 * The right child	->	2*nodeidx + 2
-		 *
 		 */
 		grow_subtree(t, 2*nodeidx+1, d+1, maxd, tvals, rs, cs, srs, scs, pixelss,
 					 nrowss, ncolss, ldims, ws, inds, indsnum);//left sub tree
@@ -574,12 +590,21 @@ int grow_subtree(rtree* t, int nodeidx, int d, int maxd, float tvals[], int rs[]
 		return 1;
 	}
 
-	/* generate a position list. each has a 2-pixel pair (4 bytes) to
-	 * compare the pixel intensity.
+	/*
+	 * tcode[] : randomly genereated 2-pixel pair position for binary pixel comparison to generate decision trees
+	 * Each element of the tcodep[] has a 2-pixel pair (4 bytes) to compare the pixel intensity.
 	 * This is very similar to BRIEF keypoint descriptor.
+	 *
+	 *                         0                    d=0 , tcodes[]
+	 *                 1                2           d=1 , tcodes[]
+	 *             3      4        5        6       d=2 , tcodes[], tcodes[] has a depth 3 tree.
+	 *           7  8   9  10   11  12   13  14     d=depth=3 ==> lut[] contains only bottom nodes with float type.
+	 *           0  1   2   3    4   5    6   7     offset from 0 for lut[].
+	 * the idx of the level d starts from (2^d-1).
+	 * So (idx - (2^d - 1)) is index in the level d with starting offset 0.
 	 */
 	nrands = NRANDS;	//total 1024 2-pixel pairs are generated randomly.
-					//This 2-pixel pair will be an internal node in decision tree.
+						//This 2-pixel pair will be an internal node in decision tree.
 
 	/* How to calculate Weighted Mean Square Error to generate a decision tree?
 	 * Find the best attribute/feature to split the training set.
@@ -603,7 +628,7 @@ int grow_subtree(rtree* t, int nodeidx, int d, int maxd, float tvals[], int rs[]
 		tcodes[i] = mwcrand();//get the randomly genereated 2-pixel pair position for later comparison to generate decision tree
 
 	#pragma omp parallel for
-	for(i=0; i<nrands; ++i)//compute every WMSE by the 2-pixel pairs stored in tcodes array.
+	for(i=0; i<nrands; ++i)//compute every WMSE of the 1024 pairs for the input samples
 		spliterrors[i] = get_split_error(tcodes[i], tvals, rs, cs, srs, scs,
 										 pixelss, nrowss, ncolss, ldims, ws,
 										inds, indsnum);
@@ -636,6 +661,12 @@ int grow_subtree(rtree* t, int nodeidx, int d, int maxd, float tvals[], int rs[]
 
 /*
 n : np + nn, total number of the training samples
+d : max depth of the tree
+rs[],cs[]: center of the bounding face box. The <row, col> refer to the rid coordinate.
+pixelss[] : all the rid files
+rid file : The width and height are 1.5 times diameter,s, of the inner face bounding box.
+nrowss[],ncolss[] : rid file's dim
+ws[] : weight of the samples
 */
 int grow_rtree(rtree* t, int d, float tvals[], int rs[], int cs[], int srs[],
 			   int scs[], uint8_t* pixelss[], int nrowss[], int ncolss[],
@@ -644,6 +675,9 @@ int grow_rtree(rtree* t, int d, float tvals[], int rs[], int cs[], int srs[],
 	int i,ret=0;
 	int* inds;
 
+	/* allocating (2^d - 1) nodes for t->tcode[], internal nodes of binary pixel comparison pair
+	 * allocating the bottom level d, 2^d nodes, for t->lut[], as the terminal nodes.
+	 */
 	if(!allocate_rtree_data(t, d))
 		return ret;
 
@@ -653,8 +687,6 @@ int grow_rtree(rtree* t, int d, float tvals[], int rs[], int cs[], int srs[],
 		for(i=0; i<n; ++i)
 			inds[i] = i;//0,1,2,3,4
 
-		//if(!grow_subtree(t, 0, 0, d, tvals, rs, cs, srs, scs, pixelss, nrowss,
-		//				ncolss, ldims, ws, inds, n))
 		ret = grow_subtree(t, 0, 0, d, tvals, rs, cs, srs, scs, pixelss, nrowss,
 						ncolss, ldims, ws, inds, n);
 		free(inds);
@@ -887,7 +919,7 @@ int load_background_images(char* folder)
 
 struct
 {
-	float tsr, tsc;
+	float tsr, tsc;//scale factor of row and col
 
 	int numstages;
 
@@ -1027,7 +1059,12 @@ int loadDetector(char* path)
 	return 1;
 }
 
-/*
+/* Refer to adaboost : http://mitpress.mit.edu/sites/default/files/titles/content/9780262017183_sch_0001.pdf
+ * create maxnumtrees tree(s) in the specified stage.
+ * The steps here are similar to adaboost.
+ * stageidx : the stage to create trees
+ * maxnumtrees : trees in this stage
+ * os[] : The output of the sample data by the decision tree. the regression value of the sample. It's init to all 0.
 classs : ground truth table for all training samples, +1(positive) and 0(negative)
 np : number of positive samples
 nn : number of negative samples
@@ -1059,20 +1096,19 @@ int learn_new_stage(int stageidx, int tdepth, float mintpr, float maxfpr,
 	//tvals : the ground truth table (floating type) for positive and negative samples
 	tvals = (float*)malloc((np+nn)*sizeof(float));
 
-	//TODO, tvals[i] = classs[i]?+1.0f:-1.0f;
-	for(i=0; i<np+nn; ++i)//iterating all training samples
-		if(classs[i])//+1, postivie
-			tvals[i] = +1.0f; // object
-		else//0, negative
-			tvals[i] = -1.0f; // non-object
+	for(i=0; i < (np+nn); ++i)//iterating all training samples
+		tvals[i] = classs[i]?+1.0f:-1.0f;
+		//if(classs[i])//+1, postivie
+		//	tvals[i] = +1.0f; // object
+		//else//0, negative
+		//	tvals[i] = -1.0f; // non-object
 
-	//
 	irs = (int*)malloc((np+nn)*sizeof(int));
 	ics = (int*)malloc((np+nn)*sizeof(int));
 
 	isrs = (int*)malloc((np+nn)*sizeof(int));
 	iscs = (int*)malloc((np+nn)*sizeof(int));
-
+	//type cast from float to integer
 	for(i=0; i<np+nn; ++i)
 	{
 		irs[i] = (int)( rs[i] );
@@ -1095,20 +1131,31 @@ int learn_new_stage(int stageidx, int tdepth, float mintpr, float maxfpr,
 		float t;
 		int numtps, numfps;
 
-		// compute weights ...
+		/* compute weights ...
+		 * The weight computing is similar to adaboost
+		 */
+
 		wsum = 0.0;
 
-		for(i=0; i<np+nn; ++i)
-		{
+		for(i=0; i< np+nn; ++i)
+		{	/* init weight => e^(-1*0)=e^0=1
+			 * all object weight are init to 1/np
+			 * all nonobject weight are init to 1/nn
+			 * adaboost weight
+			 * w_s = w_s * exp(-c_s * T_k (I_s))
+			 * os[i] = T_k(I_s), the output of the sample data by the decision tree. init to "0"
+			 *
+			 * classs[] : ground truth table for all training samples, +1(positive) and 0(negative)
+			 */
 			if(classs[i])
-				ws[i] = exp(-1.0*os[i])/np;
+				ws[i] = exp(-1.0*os[i])/np;//positive, init to 1/np before training
 			else
-				ws[i] = exp(+1.0*os[i])/nn;
+				ws[i] = exp(+1.0*os[i])/nn;//negative, init to 1/nn before training
 
-			wsum += ws[i];
+			wsum += ws[i];//total weight
 		}
 
-		for(i=0; i<np+nn; ++i)
+		for(i=0; i< (np+nn); ++i)
 			ws[i] /= wsum;//normalize the sum of ws to 1
 
 		// grow a tree ...
@@ -1124,7 +1171,7 @@ int learn_new_stage(int stageidx, int tdepth, float mintpr, float maxfpr,
 		++numtrees;
 
 		// update outputs ...
-		for(i=0; i<np+nn; ++i)
+		for(i=0; i< (np+nn); ++i)
 		{
 			float o;
 
@@ -1160,8 +1207,7 @@ int learn_new_stage(int stageidx, int tdepth, float mintpr, float maxfpr,
 			//
 			tpr = numtps/(float)np;
 			fpr = numfps/(float)nn;
-		}
-		while(tpr<mintpr);
+		}while(tpr<mintpr);
 
 		printf(" tpr=%f, fpr=%f\t", tpr, fpr);
 		fflush(stdout);
@@ -1233,7 +1279,10 @@ float TrainedBySampleData(int classs[], float rs[], float cs[], float ss[],
 
 	t = getticks();
 
-	//The first time training, odetector.numstages is 0, because the tree is empty.
+	/* The first time training, odetector.numstages is 0, because the tree is empty.
+	 * Face and nonface objects are all regarded as "face" objects at odetector.numstages=0.
+	 * so FPR=1.0 and TPR=1.0
+	 */
 	n = 0;
 	printf("[%s]: odetector.numstages=%d\n", __func__, odetector.numstages);
 
@@ -1340,7 +1389,7 @@ float TrainedBySampleData(int classs[], float rs[], float cs[], float ss[],
 
 						os[n] = o;//regression value, it's 0.0 at the first time training.
 
-						classs[n] = 0;//the sample is an non-object, 0
+						classs[n] = 0;//the sample is an non-object, 0, though it's false positive
 
 						//
 						++n;//total samples of object and non-object
@@ -1350,6 +1399,7 @@ float TrainedBySampleData(int classs[], float rs[], float cs[], float ss[],
 						stop = 1;
 				}
 			}//else it's true negative.
+
 			if(!stop){
 			#pragma omp atomic
 			++nw;//total negative
@@ -1360,7 +1410,7 @@ float TrainedBySampleData(int classs[], float rs[], float cs[], float ss[],
 	/*
 		print estimated true positive and false positive rates : false_postive / (false_positive + true_nagative)
 	*/
-	printf("maxn=%d, n=%d, nw=%d, nn=%d=\n", maxn, n, nw, *nn);
+	printf("maxn=%d, n=%d, nw=%ld, nn=%d=\n", maxn, n, nw, *nn);
 	etpr = *np/(float)numos;
 	efpr = (float)( *nn/(double)nw );
 
@@ -1450,13 +1500,17 @@ int LearnByAppendStages(char* src, char* dst, int maxnumstagestoappend,
 		/*
 		 * classifying positive(object) samples and negative(non-object) samples.
 		 * returning the estimated false positive rate : FP/(TN+FP)
+		 *
+		 * At first, odetector.numstages=0, no decision tree is built.
+		 * all face and nonface samples are presumed as "object/face".
+		 * TPR = 1.0, FPR=1.0
 		*/
 		currentfpr = TrainedBySampleData(classs,		//ground truth table for positive sample, +1
 														//negative, 0
 										  rs, cs, ss,	//face bounding box center
 										  pixelss,		//rid raw data
 										  nrowss, ncolss,//rid's dim rows and cols
-										os,				//regression value
+										os,				//regression value, init at 0.0
 										maxnumsamples,	//2*numos numbers of object samples loaded into ram
 										&np, &nn);		//positive and negative samples
 
@@ -1468,7 +1522,9 @@ int LearnByAppendStages(char* src, char* dst, int maxnumstagestoappend,
 		}
 
 		/*
-			learn decision trees in the current stage
+		 * learn decision trees
+		 * At first, odetector.numstages=0, no decision tree is built.
+		 * The first decision tree is created here.
 		*/
 
 		printf("\n");

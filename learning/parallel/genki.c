@@ -31,7 +31,8 @@ inline float rand_real(void)
 
 /*
  * rid : raw intensity data
- *
+ * rid, A newly cropped area around the boudning face box. The rid has 1.5x diameter of the
+ * bounding box.
  * path : the destination rid file and verification .bmp file for a face bounding box.
  * src : the grey level image of the genki face image.
  * roi : the newly cropped image ROI to the src image. The newly cropped box is a little bigger
