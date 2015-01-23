@@ -89,7 +89,7 @@ int loadrid(uint8_t* pixels[], int* nrows, int* ncols, const char* path)
 	fclose(file);
 
 	// we're done
-	printf("memory used : %u\n", uRidBufSize);
+	//printf("memory used : %u\n", uRidBufSize);
 	return 1;
 }
 
@@ -247,11 +247,11 @@ int bintest(int tcode, int r, int c, int sr, int sc, uint8_t pixels[],
 	return pixels[r1*ldim+c1]<=pixels[r2*ldim+c2];
 }
 
-/* Get the regression value of the object sample, pixels, by a regression tree.
- * t : one tree {depth, tcode, lut}
- * tcode : 2-pixel coordination pair for bintest. The internal nodes of a full complete binary tree.
- * an object bounding box center at (r,c) with diameter sr=sc=s
- * pixels : rid buffer of a sample
+/* Get the regression value of an input data.
+ * t : The full binary (decision) tree {depth, tcode, lut}
+ * tcode[] : 2-pixel coordination pair for bintest. The internal nodes of a full complete binary tree.
+ * r,c,sr,sc : the bounding box center at (r,c) with diameter sr=sc=s
+ * pixels[] : the rid buffer to pass the tree to get the output
  * nrows, ncols : rid's dimension
  * ldim : rid is row-major 2d array, ldim is the column size
  */
@@ -392,9 +392,12 @@ int load_rtree_from_file(rtree* t, FILE* f)
  * tcode : 4 bytes,(x0,y0,x1,y1) tupple. x0,y0,x1,y1 is one byte. Coordination is normalized to 0-255.
  * compare the pixel intensity of (x0,y0) to (x1,y1).
  * tvals : ground truth table of all the training samples , -1.0f negative sample, +1.0f positive sample
- * inds : an array of total indsum integers init as {0,1,2,3... indsnum-1}
+ * inds[] : an array of total indsum integers init as {0,1,2,3... indsnum-1}
+ * This index table is used to virtually move the training data in pixelss[],
+ * but only swap the index, not to physically move the training data.
  * indsnum : np + nn, total number of the training samples to be processed
- * TODO : ???? the error calculation does not seem to match section 2.1.
+ * pixelss[] : face and nonface rid buffer as the input training samples.
+ * The upper buffer are all faces samples and the lower buffer are all nonface at the beginning.
  */
 float get_split_error(int tcode, float tvals[], int rs[], int cs[],
 					  int srs[], int scs[], uint8_t* pixelss[],
@@ -446,8 +449,20 @@ float get_split_error(int tcode, float tvals[], int rs[], int cs[],
 }
 
 /*
-inds : an array of total indsum integers init as {0,1,2,3... indsnum-1}
-indsnum : np + nn, total number of the training samples to be processed
+ * splitting the pixelss[] into two subgroups by the two-pixel pair comparison.
+ * To move pixelss[] costs too much, so a index array is used to move virtually.
+ * A very simple bubble sort skill is used, so the bintest result "0" is popped to top,
+ * and the bintest result 1 is dived to the bottom.
+ * After the sort, the samples of bintest result 0 are on the top, and those of bintest result 1 are in bottom.
+ *
+ * tvals[] : the ground truth table (floating type) for positive ,+1.0, and negative ,-1.0, samples
+ * tcode : 4 bytes,(x0,y0,x1,y1) tupple. x0,y0,x1,y1 is one byte. Coordination is normalized to 0-255.
+ * inds[]: an array of index to pixelss[], which are sample rid file buffers.
+ * 		It's init to {0,1,2,3... indsnum-1}. To move the sample buffer costs too much in pixelss[],
+ * 	so a index list/array is used to move virtually the samples by the classification.
+ * indsnum : The number of the training samples(positive+negative) to be processed by this subtree.
+ * ws[] : weight of the input samples
+ * pixelss[] : face and nonface rid buffer as the input training samples.
 */
 int split_training_data(int tcode, float tvals[], int rs[], int cs[], int srs[],
 						int scs[], uint8_t* pixelss[], int nrowss[], int ncolss[],
@@ -464,9 +479,14 @@ int split_training_data(int tcode, float tvals[], int rs[], int cs[], int srs[],
 	i = 0;
 	j = indsnum - 1;
 
+	/*
+	 * The following is a kind of bubble sort to divide the whole into two parts.
+	 * The bintest result "1" should be swap down to the bottom.
+	 * The bintest result "0" should be swap up to the top.
+	 */
 	while(!stop)
 	{
-		//
+		//The upper is classified as 1, so go to find the zero to swap down.
 		while( !bintest(tcode, rs[inds[i]], cs[inds[i]], srs[inds[i]], scs[inds[i]],
 			pixelss[inds[i]], nrowss[inds[i]], ncolss[inds[i]], ldims[inds[i]]) )
 		{
@@ -475,7 +495,7 @@ int split_training_data(int tcode, float tvals[], int rs[], int cs[], int srs[],
 			else
 				++i;
 		}
-
+		////The upper is classified as 0, so go to find the 1 to swap up.
 		while( bintest(tcode, rs[inds[j]], cs[inds[j]], srs[inds[j]], scs[inds[j]],
 			pixelss[inds[j]], nrowss[inds[j]], ncolss[inds[j]], ldims[inds[j]]) )
 		{
@@ -490,14 +510,21 @@ int split_training_data(int tcode, float tvals[], int rs[], int cs[], int srs[],
 			stop = 1;
 		else
 		{
-			// swap
+			/* swap : The 3 magic lines can swap two variables without an extra space.
+			 * http://www.programmingsimplified.com/c-program-swap-two-numbers
+			 * ^ : bitwise XOR
+			 * The index array element swap means to swap the two objects in pixelss[] virtually.
+			 */
 			inds[i] = inds[i] ^ inds[j];
 			inds[j] = inds[i] ^ inds[j];
 			inds[i] = inds[i] ^ inds[j];
 		}
 	}
 
-	//
+	/*
+	 * the number of samples whose bintest result 0. which is in upper part.
+	 *
+	 */
 	n0 = 0;
 
 	for(i=0; i<indsnum; ++i)
@@ -510,14 +537,17 @@ int split_training_data(int tcode, float tvals[], int rs[], int cs[], int srs[],
 }
 
 /*
-nodeidx : the internal node index of the tree, init from 0 at root.
+nodeidx : the root node index of the subtree, init from 0 at root.
 d : current tree depth, init from 0
 maxd : maximum tree depth to traverse
 ws[]= all init to 1/n
 inds[] : an array of total indsum elements init as {0,1,2,3... indsnum-1}
+This index table is used to virtually move the training data in pixelss[],
+but only swap the index, not to physically move the training data.
 indsnum : The total number of the training samples to be processed.
 	At first is "np + nn" and then the samples are splited into two subtrees.
 rs[],cs[]: center of the bounding face box. The <row, col> refer to the rid coordinate.
+pixelss[] : face and nonface rid buffer as the input training samples.
 */
 int grow_subtree(rtree* t, int nodeidx, int d, int maxd, float tvals[], int rs[],
 				 int cs[], int srs[], int scs[], uint8_t* pixelss[], int nrowss[],
@@ -538,10 +568,11 @@ int grow_subtree(rtree* t, int nodeidx, int d, int maxd, float tvals[], int rs[]
 
 	int n0;
 
-	//in order to speed up the learning, so a bounded tree depth is used to stop the recursive.
-	//maxd(max tree depth) is specified by python script to start the train.
+	/* in order to speed up the learning, so a bounded tree depth is used to stop the recursive.
+	 * maxd(max tree depth) is specified by python script to start the train.
+	 */
 	if(d == maxd)
-	{
+	{	//subtree terminates now.
 		int lutidx;
 		double tvalaccum, wsum;
 
@@ -635,7 +666,8 @@ int grow_subtree(rtree* t, int nodeidx, int d, int maxd, float tvals[], int rs[]
 
 	//the spliterrors array contains every WMSE calculated by the binary_test pixel pair.
 	bestspliterror = spliterrors[0];
-	t->tcodes[nodeidx] = tcodes[0];//???
+	//nodeidx : the root node index of the subtree
+	t->tcodes[nodeidx] = tcodes[0];
 
 	for(i=1; i<nrands; ++i)//get the minimum WMSE as the best attribute to split the training sample to build decision tree.
 		if(bestspliterror > spliterrors[i])
@@ -644,8 +676,10 @@ int grow_subtree(rtree* t, int nodeidx, int d, int maxd, float tvals[], int rs[]
 			t->tcodes[nodeidx] = tcodes[i];//record the best split attribute (2-pixel pair)
 		}
 
-	//split the training data into two sub-trees by the minimum WSME attribute/feature
-	//which becomes an internal node of the decision tree.
+	/* split the training data into two sub-trees by the minimum WSME attribute/feature
+	 * which becomes an internal node of the decision tree.
+	 * split_training_data uses a bubble-sort like method to separate training data to C0 and C1.
+	 */
 	n0 = split_training_data(t->tcodes[nodeidx], tvals, rs, cs, srs, scs, pixelss,
 							 nrowss, ncolss, ldims, ws, inds, indsnum);
 
@@ -781,7 +815,7 @@ int load_object_samples(const char* folder)
 
 		// load rid image, face0.rid, into memory opixels[]
 		sprintf(fullpath, "%s/%s", folder, buffer);
-		printf("loading [%s]\n", fullpath);
+		//printf("loading [%s]\n", fullpath);
 		/*raw intensity data :
 		 * 4 bytes width : x : ncols : rid's cols
 		 * 4 bytes height : y : nrows : rid's rows
@@ -797,7 +831,7 @@ int load_object_samples(const char* folder)
 			printf("read string error %d\n", errno);
 			return 0;
 		}
-		printf("+++[%s]\n",tempstr);
+		//printf("+++[%s]\n",tempstr);
 		int temp=0;
 		if(temp = sscanf(tempstr, "%d", &n) != 1){
 			printf("xxx[%d] n=%d\n",temp, n);
@@ -845,6 +879,7 @@ int load_object_samples(const char* folder)
 	}
 	fclose(list);
 	printf("+++total faces numos=%d\n", numos);
+	printf("total memory used : %u\n", uRidBufSize);
 	//check the maximum numbers of object samples supported.
 	/*if(numos >= MAXNUMOS)
 	{
@@ -884,7 +919,7 @@ int load_background_images(char* folder)
 	sprintf(path, "%s/list.txt", folder);
 
 	list = fopen(path, "r");
-	printf("loading [%s]\n", path);
+	//printf("loading [%s]\n", path);
 	if(!list)
 		return 0;
 
@@ -900,7 +935,7 @@ int load_background_images(char* folder)
 	{
 		//rid file name in nonfaces : 00000-IMG_2121.JPG.rid
 		sprintf(path, "%s/%s", folder, name);
-		printf("[%s]\n", path);
+		//printf("[%s]\n", path);
 		//
 		if(loadrid(&bpixelss[numbs], &bnrowss[numbs], &bncolss[numbs], path))
 			++numbs;
@@ -909,6 +944,7 @@ int load_background_images(char* folder)
 	//
 	fclose(list);
 	printf("total background [%d]\n", numbs);
+	printf("total memory used : %u\n", uRidBufSize);
 	//
 	return 1;
 }
@@ -1130,7 +1166,6 @@ int learn_new_stage(int stageidx, int tdepth, float mintpr, float maxfpr,
 	{
 		float t;
 		int numtps, numfps;
-
 		/* compute weights ...
 		 * The weight computing is similar to adaboost
 		 */
@@ -1166,62 +1201,69 @@ int learn_new_stage(int stageidx, int tdepth, float mintpr, float maxfpr,
 					ws, np+nn);
 
 		printf("\r");
-		printf("	tree %d (%f [sec]) ...", numtrees+1, getticks()-t);
+		printf("	tree %d (%f [sec]) ...\n", numtrees+1, getticks()-t);
 
 		++numtrees;
 
-		// update outputs ...
+		// update outputs by test all the training samples again by the tree.
 		for(i=0; i< (np+nn); ++i)
 		{
 			float o;
-
-			//
+			//printf(">>[%d] os=%f\n",i, os[i]);
+			//The regression value of the sample. It's stored in lut[].
 			o = get_rtree_output(&odetector.rtreearrays[stageidx][numtrees-1],
 								 irs[i], ics[i], isrs[i], iscs[i], pixelss[i],
 								nrowss[i], ncolss[i], ncolss[i]);
 
-			//
+			//sum up the output value per sample
 			os[i] += o;
+			//printf("o=%f\n", o);
+			//printf("<<os=%f\n",os[i]);
 		}
 
-		// get threshold ...
-		threshold = 5.0f;
-
+		// get threshold, an empirical value ...
+		//threshold = 5.0f;//empirically, this is too big
+		threshold = 0.9f;	//this fpr is almost "0"
+		printf(">>>threshold=%f, mintpr=%f, maxfpr=%f\n", threshold, mintpr, maxfpr);
 		do
 		{
-			//
-			threshold -= 0.005f;
+			//how to define the threshold? It should depend on the tpr, fpr, trees and stages.
+			threshold -= 0.005f;//decreasing the threshold
 
 			numtps = 0;
 			numfps = 0;
 
-			//
-			for(i=0; i<np+nn; ++i)
+			//calculating the true positive and false positive
+			for(i=0; i< (np+nn); ++i)
 			{
-				if( classs[i] && os[i]>threshold)
-					++numtps;
-				if(!classs[i] && os[i]>threshold)
-					++numfps;
+				if( classs[i] && os[i]>threshold) 	//classs[i] ==1 : positive sample
+					++numtps;						//true positive
+				if(!classs[i] && os[i]>threshold)	//classs[i] ==0  : negative sample
+					++numfps;						//but the ouput is above the threshold, false positive
 			}
 
-			//
+			//the rate : TPR and FPR
 			tpr = numtps/(float)np;
 			fpr = numfps/(float)nn;
-		}while(tpr<mintpr);
+			printf(">>>threshold=%f, tpr/mintpr=%f/%f, fpr/maxfpr=%f/%f\n", threshold, tpr, mintpr,
+				   fpr, maxfpr);
+		}while(tpr<mintpr);//iterate and reduce the threshold till the tpr is greater than the mintpr
 
-		printf(" tpr=%f, fpr=%f\t", tpr, fpr);
+		printf("<<<threshold=%f, tpr/mintpr=%f/%f, fpr/maxfpr=%f/%f\n", threshold, tpr, mintpr,
+				   fpr, maxfpr);
 		fflush(stdout);
 	}
 
-	//
+	printf("fpr=%f/maxfpr=%f\n", fpr, maxfpr);
+
+	//save the threshold
 	odetector.thresholds[stageidx] = threshold;
 
-	printf("\n");
-	printf("	threshold set to %f\n", threshold);
+	printf("threshold set to %f\n", threshold);
 
 	//
 	odetector.numtreess[stageidx] = numtrees;
-
+	printf("%d trees in stage %d\n", numtrees, stageidx);
 	//
 	free(tvals);
 
@@ -1490,7 +1532,7 @@ int LearnByAppendStages(char* src, char* dst, int maxnumstagestoappend,
 		float currentfpr;//fpr= 1e-6: false positive rate, false_postive / (false_positive + true_nagative)
 
 		printf("--------------------------------------------------------------------\n");
-		printf("%d/%d\n", i+1, maxnumstages);
+		printf("stage : %d/%d\n", i+1, maxnumstages);
 
 		/*
 			sample training set
