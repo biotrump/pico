@@ -154,9 +154,9 @@ void process_webcam_frames()
 			break;
 		frame = cvRetrieveFrame(capture, 1);
 		// wait 5 miliseconds
-		int key = cvWaitKey(5);
+		char key = cvWaitKey(5);
 		// we terminate the loop if we don't get any data from the webcam or the user has pressed 'q'
-		if(!frame || key=='q')
+		if(!frame || key=='q' || key == 27 || key=='Q')
 			break;
 		else
 		{
