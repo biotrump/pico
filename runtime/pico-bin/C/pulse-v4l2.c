@@ -28,8 +28,8 @@
 #include <opencv2/imgproc/imgproc.hpp>
 #include "dsp-ica.h"
 
-#define FORCED_WIDTH  320	//640
-#define FORCED_HEIGHT 240	//480
+#define FORCED_WIDTH  640
+#define FORCED_HEIGHT 480
 #define FORCED_FORMAT V4L2_PIX_FMT_YUYV	//V4L2_PIX_FMT_MJPEG
 #define FORCED_FIELD  V4L2_FIELD_ANY
 #define	ROI_BORDERW		(4)
@@ -749,7 +749,10 @@ static CvScalar processFrame(const void *p, int size)
 		//		return ;
 		//	}
 		framecopy = cvCreateImage(cvSize(win_width,win_height), IPL_DEPTH_8U, 3);
-		yuyv_to_rgb24(win_width,win_height, (unsigned char *)p, framecopy->imageData);
+		if(enableInfraRed)
+			infrared_to_rgb888(win_width,win_height, (unsigned char *)p, framecopy->imageData);
+		else
+			yuyv_to_rgb24(win_width,win_height, (unsigned char *)p, framecopy->imageData);
 		roi_WIDTH = (win_width>>2);
 		roi_HEIGHT = (win_height/3);
 		roi_Y_OFFSET =	(90)/(480/win_height);
