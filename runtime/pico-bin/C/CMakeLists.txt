@@ -51,6 +51,7 @@ ADD_EXECUTABLE( pulse-v4l2
 	)
 #message(">>> DSP_ICA_LIBS::${DSP_ICA_LIBS}" )
 #dynamic or static link
-TARGET_LINK_LIBRARIES( pulse-v4l2 ${OpenCV_LIBS}
-	${V4L2_LIB_OUT}/libv4l2-lib.a
+#	${V4L2_LIB_OUT}/libv4l2-lib.a
+TARGET_LINK_LIBRARIES( pulse-v4l2
+	${OpenCV_LIBS}
 	${DSP_ICA_LIBS}/libdsp-ica.a)

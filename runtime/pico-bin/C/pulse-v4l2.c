@@ -28,14 +28,14 @@
 #include <opencv2/imgproc/imgproc.hpp>
 #include "dsp-ica.h"
 
-#define FORCED_WIDTH  640
-#define FORCED_HEIGHT 480
+#define FORCED_WIDTH  320	//640
+#define FORCED_HEIGHT 240	//480
 #define FORCED_FORMAT V4L2_PIX_FMT_YUYV	//V4L2_PIX_FMT_MJPEG
 #define FORCED_FIELD  V4L2_FIELD_ANY
 #define	ROI_BORDERW		(4)
-#define	ROI_WIDTH		(160)
-#define	ROI_HEIGHT		(180)
-#define ROI_Y_OFFSET	(90)
+//#define	ROI_WIDTH		(FORCED_WIDTH>>2)	//(160)
+//#define	ROI_HEIGHT		(FORCED_HEIGHT/3)	//(180)
+//#define ROI_Y_OFFSET	(90)/(480/FORCED_HEIGHT)
 
 /*http://forum.processing.org/one/topic/webcam-with-stable-framerate-25fps-on-high-resolution.html
 The stable fps can only occur in the low frame rate. Higher fps>15 may not be stable.
@@ -58,15 +58,22 @@ struct buffer {
 static PCircularQueue cq,cqLong;
 
 static char            *dev_name;
-static enum io_method   io = IO_METHOD_MMAP;
+static enum io_method   v4l2_io = IO_METHOD_MMAP;
 static int              fd = -1;
 struct buffer          *buffers;
 static unsigned int     n_buffers;
 static int				out_buf;
 static int              force_format;
 static int              frame_count = 0;
+static int				enableInfraRed=0;
+static char 			*windowname="v4l2 capture";
+static unsigned 		v4l2_pix_fmt=FORCED_FORMAT;
 
-static char *windowname="v4l2 capture";
+static int 				win_width = FORCED_WIDTH;
+static int 				win_height = FORCED_HEIGHT;
+static int				roi_WIDTH;
+static int				roi_HEIGHT;
+static int				roi_Y_OFFSET;
 
 static void deinitCQs(void)
 {
@@ -82,8 +89,8 @@ static void initCQs(void)
 {
 	pr_debug(DSP_INFO,"+%s:\n", __func__);
 	deinitCQs();
-	cq=cqInit(getSampleWindow() * getFPS());
-	cqLong=cqInit(getMaxSampleTime() * getFPS());
+	cq=cqInit(getSampleWindow() * getDSPFPS());
+	cqLong=cqInit(getMaxSampleTime() * getDSPFPS());
 }
 
 static void errno_exit(const char *s)
@@ -411,6 +418,7 @@ int SetFPSParam(int fd, uint32_t fps)
 {
 	double fps_new=(double)fps;
 	struct v4l2_streamparm param;
+	printf("+++pulse::SetFPSParam\n");
     memset(&param, 0, sizeof(param));
     param.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
     param.parm.capture.timeperframe.numerator = 1;
@@ -427,7 +435,7 @@ int SetFPSParam(int fd, uint32_t fps)
 			printf("unsupported frame rate [%d,%f]\n", fps, fps_new);
 			return;
 		}else{
-			printf("new fps:%u , %u/%u\n",fps, param.parm.capture.timeperframe.denominator,
+			printf("new fps:%u = %u/%u\n\n",fps, param.parm.capture.timeperframe.denominator,
 			param.parm.capture.timeperframe.numerator);
 		}
 	}
@@ -438,7 +446,8 @@ uint32_t GetFPSParam(int fd, double fps, struct v4l2_frmivalenum *pfrmival)
     struct v4l2_frmivalenum frmival[10];
     float fpss[10];
     int i=0;
-/*
+	pr_debug(DSP_INFO,"+%s:\n", __func__);
+	/*
     memset(&frmival,0,sizeof(frmival));
     frmival.pixel_format = fmt;
     frmival.width = width;
@@ -479,6 +488,7 @@ uint32_t GetFPSParam(int fd, double fps, struct v4l2_frmivalenum *pfrmival)
     	*pfrmival = frmival[i];
     	pr_debug(DSP_DEBUG, "fps:request[%.1f],but set to [%.1f]\n", fps, fpss[i]);
     }
+    pr_debug(DSP_INFO,"-%s:\n", __func__);
     return (uint32_t)fpss[i];
 }
 
@@ -509,19 +519,19 @@ int PrintFrameInterval(int fd, unsigned int fmt, unsigned int width, unsigned in
     return 0;
 }
 
-int EnumFrameRate(int fd, unsigned int format)
+int EnumFrameSize(int fd, unsigned int format)
 {
     unsigned int width=0, height=0;;
     struct v4l2_frmsizeenum frmsize;
     memset(&frmsize,0,sizeof(frmsize));
     frmsize.pixel_format = format; //V4L2_PIX_FMT_JPEG;
-	printf("\nEnumFrameRate:\n");
+	pr_debug(DSP_DEBUG,"\n+EnumFrameSize supporting list:\n");
     while(1){
 	    if (-1 == xioctl(fd, VIDIOC_ENUM_FRAMESIZES, &frmsize)){
-		    perror("getting VIDIOC_ENUM_FRAMESIZES");
+		    perror("getting VIDIOC_ENUM_FRAMESIZES");//enumerate is done!
 		    return -1;
 		}
-		printf("frmsize.type=%d\n", frmsize.type);
+		pr_debug(DSP_DEBUG, "\nfrmsize.type=%d\n", frmsize.type);
         if (frmsize.type == V4L2_FRMSIZE_TYPE_DISCRETE){
             PrintFrameInterval(fd, frmsize.pixel_format, frmsize.discrete.width,
             frmsize.discrete.height);
@@ -535,6 +545,7 @@ int EnumFrameRate(int fd, unsigned int format)
         }
         frmsize.index++;
     }
+    pr_debug(DSP_DEBUG,"\n-EnumFrameSize:\n");
     return 0;
 }
 
@@ -589,25 +600,30 @@ int extra_cam_setting(int camfd)
 	struct v4l2_format fmt;
 	struct v4l2_frmivalenum frmival;
 	uint32_t fps;
-
+	printf("+extra_cam_setting\n");
 	print_caps(camfd);
 	GetVideoFMT(camfd, &fmt);
-	EnumFrameRate(camfd, V4L2_PIX_FMT_YUYV);
+	fmt.fmt.pix.width=win_width;
+	fmt.fmt.pix.height=win_height;
+	SetVideoFMT(camfd, fmt);
+	EnumFrameSize(camfd, v4l2_pix_fmt);
 
 	memset(&frmival,0,sizeof(frmival));
-    frmival.pixel_format = V4L2_PIX_FMT_YUYV;
-    frmival.width = FORCED_WIDTH;
-    frmival.height = FORCED_HEIGHT;
+    frmival.pixel_format = v4l2_pix_fmt;
+    frmival.width = win_width;
+    frmival.height = win_height;
 	//fps = GetFPSParam(camfd, (double)FORCED_FPS, &frmival);
-	fps = GetFPSParam(camfd, (double)getFPS(), &frmival);
-	setFPS(fps);	//set the proper fps by the camera's cap
-    frmival.pixel_format = V4L2_PIX_FMT_YUYV;
-    frmival.width = FORCED_WIDTH;
-    frmival.height = FORCED_HEIGHT;
+	fps = GetFPSParam(camfd, (double)getDSPFPS(), &frmival);
+    frmival.pixel_format = v4l2_pix_fmt;
+    frmival.width = win_width;
+    frmival.height = win_height;
 	SetFPSParam(camfd, fps);
+	setDSPFPS(fps);	//set the proper fps by the camera's capabilities
+
 	SetAutoWhiteBalance(camfd, 0);
 	SetAutoExposure(camfd, V4L2_EXPOSURE_AUTO);
 	SetAutoExposureAutoPriority(camfd,0);
+	printf("-extra_cam_setting\n");
 #if 0
 	SetAutoExposure(camfd, /*V4L2_EXPOSURE_MANUAL ,*/ V4L2_EXPOSURE_APERTURE_PRIORITY  );
 	SetAutoExposureAutoPriority(camfd,0);
@@ -646,14 +662,14 @@ int spectraAnalysis(IplImage* framecopy, CvScalar rgb, float *pr, float *rr)
 	pr_debug(DSP_INFO,"+%s:\n", __func__);
 	//PCircularQueue pq[]={cq, cqLong};
 	PCircularQueue pq[]={cq};
-	int win_samples[]={getSampleWindow()*getFPS(), getMaxSampleTime() * getFPS()};
+	int win_samples[]={getSampleWindow()*getDSPFPS(), getMaxSampleTime() * getDSPFPS()};
 	//insert to cq and process it
 	for(i = 0; i < sizeof(pq)/sizeof(PCircularQueue); i ++){
 		if(cqInsert(pq[i], (PElemType)&rgb)){
 			pr_debug(DSP_DEBUG,"!!!!queue[%d] is full and is wating...\n", i);
 		}else{
 			int j;
-			int steps=getStepping()*getFPS();
+			int steps=getStepping()*getDSPFPS();
 			pr_debug(DSP_INFO,"cq[%d]: %d\n",i, cqUsedSize(pq[i]));
 			//indicator to count bpm
 			char hrtext[20];
@@ -705,48 +721,50 @@ static CvScalar processFrame(const void *p, int size)
 	uint64_t ut2;
 	struct timeval pt2;
 	pr_debug(DSP_INFO,"%s: size=0x%x\n", __func__, size);
-
-#if 0 	//V4L2_PIX_FMT_MJPEG
-    IplImage* frame;
-    CvMat cvmat = cvMat(FORCED_HEIGHT, FORCED_WIDTH, CV_8UC3, (void*)p);//MJPEG buffer p
-    frame = cvDecodeImage(&cvmat, 1);//sometimes a corrupted frame is retrieved,
-    								//so frame should be checked if it's null.
-	if(frame && !framecopy){
-//		CvSize s = cvGetSize(frame);
-//		printf("[%d,%d]\n",s.width, s.height);
-		framecopy = cvCreateImage(cvGetSize(frame), IPL_DEPTH_8U, 3);
-//		printf("cvCreateImage=%p\n", framecopy);
-	}
-	if(frame){
-		cvCopy(frame, framecopy, 0);
-//    	cvShowImage(windowname, frame);
-    	cvShowImage("framecopy", framecopy);
-    }else{
-	    printf("frame NULL, size=%d\n", size);
-    }
-//	cvReleaseImage(&frame);
-#else
-//V4L2_PIX_FMT_YUYV
-//	if(size < (FORCED_WIDTH*FORCED_HEIGHT*2)){
-//		printf("size too small\n");
-//		return ;
-//	}
-	framecopy = cvCreateImage(cvSize(FORCED_WIDTH,FORCED_HEIGHT), IPL_DEPTH_8U, 3);
-	yuyv_to_rgb24(FORCED_WIDTH,FORCED_HEIGHT, (unsigned char *)p, framecopy->imageData);
 	float m_roi[3]={0.0};
 	CvRect sroi;
-	sroi.x = (framecopy->width - ROI_WIDTH)/2 - 1;
-	sroi.y = (framecopy->height - ROI_HEIGHT)/2 - 1+ ROI_Y_OFFSET;
-	sroi.width = ROI_WIDTH;
-	sroi.height = ROI_HEIGHT ;
-	roi_mean(framecopy, sroi, m_roi);
-	pr_debug(DSP_INFO,"m_roi(%.4f,%.4f,%.4f)\n", m_roi[0],m_roi[1],m_roi[2]);
-	//
-	//draw the bouding ROI on the frame
-	/*cvRectangle(framecopy, cvPoint(sroi.x, sroi.y),
-				cvPoint(sroi.x+sroi.width, sroi.y+sroi.height),
-				CV_RGB(255, 0, 0), ROI_BORDERW,8, 0);*/
-#endif
+	if(V4L2_PIX_FMT_MJPEG == v4l2_pix_fmt){
+		IplImage* frame;
+		CvMat cvmat = cvMat(win_height, win_width, CV_8UC3, (void*)p);//MJPEG buffer p
+		frame = cvDecodeImage(&cvmat, 1);//sometimes a corrupted frame is retrieved,
+										//so frame should be checked if it's null.
+		if(frame && !framecopy){
+	//		CvSize s = cvGetSize(frame);
+	//		printf("[%d,%d]\n",s.width, s.height);
+			framecopy = cvCreateImage(cvGetSize(frame), IPL_DEPTH_8U, 3);
+	//		printf("cvCreateImage=%p\n", framecopy);
+		}
+		if(frame){
+			cvCopy(frame, framecopy, 0);
+	//    	cvShowImage(windowname, frame);
+			cvShowImage("framecopy", framecopy);
+		}else{
+			printf("frame NULL, size=%d\n", size);
+		}
+	//	cvReleaseImage(&frame);
+	}else{
+		//V4L2_PIX_FMT_YUYV
+		//	if(size < (win_width*win_height*2)){
+		//		printf("size too small\n");
+		//		return ;
+		//	}
+		framecopy = cvCreateImage(cvSize(win_width,win_height), IPL_DEPTH_8U, 3);
+		yuyv_to_rgb24(win_width,win_height, (unsigned char *)p, framecopy->imageData);
+		roi_WIDTH = (win_width>>2);
+		roi_HEIGHT = (win_height/3);
+		roi_Y_OFFSET =	(90)/(480/win_height);
+		sroi.x = (framecopy->width - roi_WIDTH)/2 - 1;
+		sroi.y = (framecopy->height - roi_HEIGHT)/2 - 1+ roi_Y_OFFSET;
+		sroi.width = roi_WIDTH;
+		sroi.height = roi_HEIGHT ;
+		roi_mean(framecopy, sroi, m_roi);
+		pr_debug(DSP_INFO,"m_roi(%.4f,%.4f,%.4f)\n", m_roi[0],m_roi[1],m_roi[2]);
+		//
+		//draw the bouding ROI on the frame
+		/*cvRectangle(framecopy, cvPoint(sroi.x, sroi.y),
+					cvPoint(sroi.x+sroi.width, sroi.y+sroi.height),
+					CV_RGB(255, 0, 0), ROI_BORDERW,8, 0);*/
+	}
 	CvScalar m_rgb=cvScalar(m_roi[0],m_roi[1],m_roi[2], 0.0);
 	char hrtext[20];
 	float pr=0.0;
@@ -798,7 +816,7 @@ static int readFrame(void)
 
 	pr_debug(DSP_INFO,"%s:\n", __func__);
 
-	switch (io) {
+	switch (v4l2_io) {
 	case IO_METHOD_READ:
 		if (-1 == read(fd, buffers[0].start, buffers[0].length)) {
 			switch (errno) {
@@ -818,7 +836,7 @@ static int readFrame(void)
 		m_rgb=processFrame(buffers[0].start, buffers[0].length);
 		break;
 
-	case IO_METHOD_MMAP:
+	case IO_METHOD_MMAP://default methid
 		CLEAR(buf);
 
 		buf.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
@@ -891,7 +909,7 @@ static void captureVideo(void)
 	char ch;
 	pr_debug(DSP_INFO,"%s:\n", __func__);
 
-	pr_debug(DSP_DEBUG,"win_size=%ds, fps=%d\n", getSampleWindow(),getFPS());
+	pr_debug(DSP_DEBUG,"win_size=%ds, fps=%d\n", getSampleWindow(),getDSPFPS());
 
 	initCQs();
 	count = frame_count?frame_count:0xffffffff;
@@ -939,7 +957,7 @@ static void stopCapturing(void)
 
 	pr_debug(DSP_INFO,"%s:\n", __func__);
 
-	switch (io) {
+	switch (v4l2_io) {
 	case IO_METHOD_READ:
 		/* Nothing to do. */
 		break;
@@ -962,12 +980,12 @@ static void startCapturing(void)
 	pr_debug(DSP_INFO,"%s:\n", __func__);
 	pr_debug(DSP_INFO,"\tn_buffers: %d\n", n_buffers);
 
-	switch (io) {
+	switch (v4l2_io) {
 	case IO_METHOD_READ:
 		/* Nothing to do. */
 		break;
 
-	case IO_METHOD_MMAP:
+	case IO_METHOD_MMAP://default method in ubuntu
 		for (i = 0; i < n_buffers; ++i) {
 			struct v4l2_buffer buf;
 
@@ -1023,7 +1041,7 @@ static void uninit_device(void)
 
 	pr_debug(DSP_INFO,"%s:\n", __func__);
 
-	switch (io) {
+	switch (v4l2_io) {
 	case IO_METHOD_READ:
 		free(buffers[0].start);
 		break;
@@ -1227,7 +1245,7 @@ static void init_device(void)
 		exit(EXIT_FAILURE);
 	}
 
-	switch (io) {
+	switch (v4l2_io) {
 	case IO_METHOD_READ:
 		if (!(cap.capabilities & V4L2_CAP_READWRITE)) {
 			fprintf(stderr, "%s does not support read i/o\n",
@@ -1294,9 +1312,9 @@ static void init_device(void)
 
 	fmt.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
 	if (force_format) {
-		fmt.fmt.pix.width       = FORCED_WIDTH;
-		fmt.fmt.pix.height      = FORCED_HEIGHT;
-		fmt.fmt.pix.pixelformat = FORCED_FORMAT;
+		fmt.fmt.pix.width       = win_width;
+		fmt.fmt.pix.height      = win_height;
+		fmt.fmt.pix.pixelformat = v4l2_pix_fmt;
 		fmt.fmt.pix.field       = FORCED_FIELD;
 
 		pr_debug(DSP_INFO,"\tfmt.fmt.pix.pixelformat: %c,%c,%c,%c\n",
@@ -1341,7 +1359,7 @@ static void init_device(void)
 
 	extra_cam_setting(fd);
 
-	switch (io) {
+	switch (v4l2_io) {
 	case IO_METHOD_READ:
 		init_read(fmt.fmt.pix.sizeimage);
 		break;
@@ -1401,8 +1419,11 @@ static void usage(FILE *fp, int argc, char **argv)
 		 "-h | --help          Print this message\n"
 		 "-c | --count         Number of frames to grab [%i]\n"
 		 "-d | --device name   Video device name [%s]\n"
+		 "-D | --windim wwwxhhh window's width and height\n"
 		 "-e | --errorlevel    error level [%i]\n"
+		 "-E | --enumframesize framesize\n"
 		 "-i | --samplefile    raw trace sample file name\n"
+		 "-I | --InfraRed      Infra Red image\n"
 		 "-p | --mmap          Use memory mapped buffers [default]\n"
 		 "-m | --min           minimum sample period in seconds[%i]\n"
 		 "-M | --max           max sample period in seconds[%i]\n"
@@ -1418,20 +1439,23 @@ static void usage(FILE *fp, int argc, char **argv)
 		 "-v | --verbose       Verbose output\n"
 		 "",
 		 argv[0], frame_count, dev_name, getErrorLevel(), getMinSampleTime(),
-		getMaxSampleTime(), getRADICAL(), getSampleWindow(),getFPS(),getStepping());
+		getMaxSampleTime(), getRADICAL(), getSampleWindow(),getDSPFPS(),getStepping());
 }
 
-static const char short_options[] = "c:d:e:f:F:hi:m:M:o:prR:s:uvw:";
+static const char short_options[] = "c:d:D:e:Ef:F:hi:Im:M:o:prR:s:uvw:";
 
 static const struct option
 long_options[] = {
 	{ "help",   no_argument,       NULL, 'h' },
 	{ "count",  required_argument, NULL, 'c' },
 	{ "device", required_argument, NULL, 'd' },
+	{ "windim", required_argument, NULL, 'D' },
 	{ "errorlevel", required_argument, NULL, 'e' },
+	{ "enumframesize", no_argument, NULL, 'E' },
 	{ "format", no_argument,       NULL, 'f' },
 	{ "fps",  		required_argument, NULL, 'F' },
-	{ "sample-file",required_argument, NULL, 'i' },
+	{ "samplefile",required_argument, NULL, 'i' },
+	{ "InfraRed",no_argument, NULL, 'I' },
 	{ "min",		required_argument, NULL, 'm' },
 	{ "max",		required_argument, NULL, 'M' },
 	{ "output", 	required_argument, NULL, 'o' },
@@ -1471,7 +1495,18 @@ static int option(int argc, char **argv)
 			if (errno)
 				errno_exit(optarg);
 			break;
-
+		case 'D':
+			if(optarg && strlen(optarg)){
+				int i=0;
+				printf("win dim:%s\n",optarg);
+				while(optarg[i] && optarg[i] !='x') i++;
+				if(optarg[i] =='x') {
+					optarg[i]=' ';//delimeter
+					sscanf(optarg,"%d %d", &win_width, &win_height);
+					printf("win_width=%d, win_height=%d\n", win_width, win_height);
+				}
+			}
+			break;
 		case 'd':
 			dev_name = optarg;
 			break;
@@ -1482,14 +1517,15 @@ static int option(int argc, char **argv)
 			if (errno)
 				errno_exit(optarg);
 			break;
-
+		case 'E':
+			break;
 		case 'f':
 			force_format++;
 			break;
 
 		case 'F':
 			errno = 0;
-			setFPS(strtol(optarg, NULL, 0));
+			setDSPFPS(strtol(optarg, NULL, 0));
 			if (errno)
 				errno_exit(optarg);
 			break;
@@ -1498,17 +1534,20 @@ static int option(int argc, char **argv)
 			usage(stdout, argc, argv);
 			r=-1;
 			break;
-
+		case 'I':
+			enableInfraRed=1;
+			printf("IR mode enabled!\n");
+			break;
 		case 'o':
 			out_buf++;
 			break;
 
 		case 'p':
-			io = IO_METHOD_MMAP;
+			v4l2_io = IO_METHOD_MMAP;
 			break;
 
 		case 'r':
-			io = IO_METHOD_READ;
+			v4l2_io = IO_METHOD_READ;
 			break;
 
 		case 'R':
@@ -1520,7 +1559,7 @@ static int option(int argc, char **argv)
 			break;
 
 		case 'u':
-			io = IO_METHOD_USERPTR;
+			v4l2_io = IO_METHOD_USERPTR;
 			break;
 
 		case 'v':

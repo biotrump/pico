@@ -101,7 +101,10 @@ void process_image(IplImage* frame, int draw, int print)
 
 	// actually, all the smart stuff happens here
 #ifndef _ROTATION_INVARIANT_DETECTION_
-	ndetections = find_objects(0.0f, rs, cs, ss, qs, MAXNDETECTIONS, appfinder, pixels, nrows, ncols, ldim, SCALEFACTOR, STRIDEFACTOR, minsize, MIN(nrows, ncols), 1);
+	ndetections = find_objects(0.0f, rs, cs, ss, qs, MAXNDETECTIONS,
+							   appfinder, pixels, nrows, ncols, ldim,
+							SCALEFACTOR, STRIDEFACTOR, minsize,
+							MIN(nrows, ncols), 1);
 #else
 	// scan the image at 12 different orientations
 	ndetections = 0;
@@ -110,7 +113,11 @@ void process_image(IplImage* frame, int draw, int print)
 	{
 		float orientation = i*2*3.14f/12;// 2Pi/12= 360"/12=30"
 
-		ndetections += find_objects(orientation, &rs[ndetections], &cs[ndetections], &ss[ndetections], &qs[ndetections], MAXNDETECTIONS-ndetections, appfinder, pixels, nrows, ncols, ldim, SCALEFACTOR, STRIDEFACTOR, minsize, MIN(nrows, ncols), 1);
+		ndetections += find_objects(orientation, &rs[ndetections], &cs[ndetections],
+									&ss[ndetections], &qs[ndetections],
+							  MAXNDETECTIONS-ndetections, appfinder, pixels, nrows,
+							  ncols, ldim, SCALEFACTOR, STRIDEFACTOR, minsize,
+							  MIN(nrows, ncols), 1);
 	}
 #endif
 
