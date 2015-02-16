@@ -768,6 +768,7 @@ static CvScalar processFrame(const void *p, int size)
 					cvPoint(sroi.x+sroi.width, sroi.y+sroi.height),
 					CV_RGB(255, 0, 0), ROI_BORDERW,8, 0);*/
 	}
+
 	CvScalar m_rgb=cvScalar(m_roi[0],m_roi[1],m_roi[2], 0.0);
 	char hrtext[20];
 	float pr=0.0;
@@ -779,7 +780,7 @@ static CvScalar processFrame(const void *p, int size)
 	  textColor=CV_RGB(0,255,0);
 	  valid_pr=pr;
 	}else if(n < 0) {
-	  //red color
+	  //red color, release the cq and reload again!
 	  textColor=CV_RGB(255,0,0);
 	}
 	sprintf(hrtext,"%.1fbpm (%.2fHz)", valid_pr*60, valid_pr);

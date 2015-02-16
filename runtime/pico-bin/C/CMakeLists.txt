@@ -44,8 +44,29 @@ TARGET_LINK_LIBRARIES( cam-play ${OpenCV_LIBS}
 	${V4L2_LIB_OUT}/libv4l2-lib.a
 	${DSP_ICA_LIBS}/libdsp-ica.a)
 
-
+#http://www.cmake.org/Wiki/CMake/Tutorials/Exporting_and_Importing_Targets
+#Importing Targets
+#add_library(ffts-lib STATIC IMPORTED)
+#set_property(TARGET ffts-lib PROPERTY IMPORTED_LOCATION ffts/lib/libffts.x86.a)
+#add_executable(myexe src1.c src2.c)
+#target_link_libraries(myexe ffts-lib)
 #
+message("FFTS_DIR=${FFTS_DIR}")
+#message("CMAKE_FIND_LIBRARY_PREFIXES=${CMAKE_FIND_LIBRARY_PREFIXES}")
+#message("CMAKE_FIND_LIBRARY_SUFFIXES=${CMAKE_FIND_LIBRARY_SUFFIXES}")
+#PATH_SUFFIXES : the subfolder to find the lib
+#UNSET is quite important to clear the CACHE VAR in find_library
+#otherwise the CACHE VAR is kept forever no matter libffts.a is killed forever!
+UNSET(FFTSLIB CACHE)
+find_library (FFTSLIB
+			NAMES ffts
+			PATHS ${FFTS_DIR}
+			PATH_SUFFIXES lib
+			NO_DEFAULT_PATH)
+message("FFTSLIB=${FFTSLIB}")
+ADD_LIBRARY(ffts-lib STATIC IMPORTED)
+SET_PROPERTY(TARGET ffts-lib PROPERTY IMPORTED_LOCATION ${FFTSLIB})
+
 ADD_EXECUTABLE( pulse-v4l2
 	pulse-v4l2.c
 	)
@@ -54,4 +75,5 @@ ADD_EXECUTABLE( pulse-v4l2
 #	${V4L2_LIB_OUT}/libv4l2-lib.a
 TARGET_LINK_LIBRARIES( pulse-v4l2
 	${OpenCV_LIBS}
-	${DSP_ICA_LIBS}/libdsp-ica.a)
+	${DSP_ICA_LIBS}/libdsp-ica.a
+	ffts-lib)
