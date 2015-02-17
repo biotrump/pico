@@ -67,6 +67,8 @@ message("FFTSLIB=${FFTSLIB}")
 ADD_LIBRARY(ffts-lib STATIC IMPORTED)
 SET_PROPERTY(TARGET ffts-lib PROPERTY IMPORTED_LOCATION ${FFTSLIB})
 
+include_directories("${FFTS_DIR}/include")
+
 ADD_EXECUTABLE( pulse-v4l2
 	pulse-v4l2.c
 	)
