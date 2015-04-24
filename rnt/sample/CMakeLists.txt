@@ -35,6 +35,12 @@ find_path(V4L2_INC capture-v4l2.h
 message("INC:${V4L2_INC}" )
 include_directories("${V4L2_INC}")
 
+find_package(OpenMP)
+if(OPENMP_FOUND)
+	set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} ${OpenMP_C_FLAGS}")
+	set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${OpenMP_CXX_FLAGS}")
+endif(OPENMP_FOUND)
+
 #There are three kinds of target files that may be built: archive, library, and runtime.
 #Executables are always treated as runtime targets.
 #Static libraries are always treated as archive targets.
@@ -51,6 +57,7 @@ set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY ${pico_BINARY_DIR}/lib)
 
 ADD_EXECUTABLE( pico
 sample.c
+../picornt.c
 )
 
 #dynamic or static link
