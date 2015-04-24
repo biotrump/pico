@@ -65,7 +65,7 @@ float getticks()
 #endif
 
 /*
-	
+
 */
 
 int minsize = 128;
@@ -98,7 +98,7 @@ void process_image(IplImage* frame, int draw, int print)
 
 	// * detection quality threshold (must be >= 0.0f)
 	// * you can vary the TPR and FPR with this value
-	// * if you're experiencing too many false positives, try a larger number here (for example, 7.5f) 
+	// * if you're experiencing too many false positives, try a larger number here (for example, 7.5f)
 	float qthreshold = 5.0f;
 
 	// * how much to rescale the window during the multiscale detection process
@@ -240,7 +240,7 @@ void process_webcam_frames()
 	while(!stop)
 	{
 		// wait 5 miliseconds
-		int key = cvWaitKey(5);
+		char key = cvWaitKey(5);
 
 		// get the frame from webcam
 		if(!cvGrabFrame(capture))
