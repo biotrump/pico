@@ -42,8 +42,8 @@ include_directories("${V4L2_INC}")
 
 #finding libv4l2.a
 find_library (V4L2-LIB
-    NAMES v4l2
-    PATHS ${V4L2_LIB_DIR}/build/lib
+    NAMES v4l2-x86
+    PATHS ${V4L2_LIB_DIR}/build_x86/lib
     PATH_SUFFIXES lib
     NO_DEFAULT_PATH)
 message("V4L2-LIB=${V4L2-LIB} ")
@@ -67,7 +67,9 @@ sample.c
 )
 
 #dynamic or static link
-TARGET_LINK_LIBRARIES( pico ${OpenCV_LIBS} ${V4L2_LIB_OUT}/libv4l2-lib.a )
+TARGET_LINK_LIBRARIES( pico
+				${OpenCV_LIBS}
+				${V4L2-LIB})
 
 #
 ADD_EXECUTABLE( pico-speed
