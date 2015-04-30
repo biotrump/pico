@@ -48,13 +48,18 @@ set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${pico-rt_BINARY_DIR}/bin)
 set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${pico-rt_BINARY_DIR}/lib)
 set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY ${pico-rt_BINARY_DIR}/lib)
 
+ADD_LIBRARY(pico STATIC
+	sample.c
+	../picornt.c
+	)
+
 ADD_EXECUTABLE( pico-rt
-sample.c
-../picornt.c
-)
+	main.c
+	)
 
 #dynamic or static link
 #TARGET_LINK_LIBRARIES( pico-rt ${OpenCV_LIBS} ${V4L2_LIB_DIR}/build_x86/lib/libv4l2-x86.a )
-TARGET_LINK_LIBRARIES(pico-rt 
-	${OpenCV_LIBS} 
+TARGET_LINK_LIBRARIES(pico-rt
+	pico
+	${OpenCV_LIBS}
 	)
