@@ -4,7 +4,7 @@
  *
  *	This is an implementation of the algorithm described in the following paper:
  *		N. Markus, M. Frljak, I. S. Pandzic, J. Ahlberg and R. Forchheimer,
- *		A method for object detection based on pixel intensity comparisons,
+ *		Object Detection with Pixel Intensity Comparisons Organized in Decision Trees,
  *		http://arxiv.org/abs/1305.4537
  *
  *	Redistribution and use of this program as source code or in binary form, with or without modifications, are permitted provided that the following conditions are met:
@@ -17,19 +17,18 @@
  *	IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  */
 
-#define _INLINE_BINTEST_
+#pragma once
 
-#include "../../picort.c"
+/*
+	
+*/
 
-int find_faces(float rs[], float cs[], float ss[], float qs[], int maxndetections,
-						unsigned char pixels[], int nrows, int ncols, int ldim)
-{
-	static char facefinder[] =
-	{
-		#include "../../cascades/facefinder.ea"
-	};
+int find_objects
+		(
+			float rs[], float cs[], float ss[], float qs[], int maxndetections,
+			int (*run_detection_cascade)(float*, int, int, int, void*, int, int, int),
+			void* pixels, int nrows, int ncols, int ldim,
+			float scalefactor, float stridefactor, float minsize, float maxsize
+		);
 
-	int minfacesize = 100;
-
-	return find_objects(0.0f, rs, cs, ss, qs, maxndetections, facefinder, pixels, nrows, ncols, ldim, 1.2f, 0.1f, minfacesize, (nrows>ncols)?ncols:nrows, 1);
-}
+int cluster_detections(float rs[], float cs[], float ss[], float qs[], int n);
