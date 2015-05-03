@@ -5,7 +5,6 @@
 
 extern void process_image_v4l2(const void *p, int width, int height,
 int draw, int print);
-extern void process_webcam_frames();
 extern int minsize;
 extern int maxsize;
 
@@ -18,7 +17,7 @@ int main(int argc, char* argv[])
 		printf("Copyright (c) 2013, Nenad Markus\n");
 		printf("All rights reserved.\n\n");
 
-		process_webcam_frames();
+		process_image_v4l2();
 	}
 	else if(argc==2)
 	{
@@ -27,7 +26,7 @@ int main(int argc, char* argv[])
 
 		sscanf(argv[1], "%d", &minsize);
 
-		process_webcam_frames();
+		process_image_v4l2();
 	}
 	else if(argc==3)
 	{

@@ -27,6 +27,7 @@ endif(OpenCV_FOUND)
 #			HINTS ${V4L2_LIB_DIR} )
 #message("INC:${V4L2_INC}" )
 #include_directories("${V4L2_INC}")
+#find lib V4L2_LIB_OUT
 
 find_package(OpenMP)
 if(OPENMP_FOUND)
@@ -63,3 +64,13 @@ TARGET_LINK_LIBRARIES(pico-rt
 	pico
 	${OpenCV_LIBS}
 	)
+
+#ADD_EXECUTABLE( v4l2
+#	v4l2.c
+#	)
+
+#TARGET_LINK_LIBRARIES(v4l2
+#	pico
+#	${OpenCV_LIBS}
+#	${OpenCV_LIBS} ${V4L2_LIB_DIR}/build_x86/lib/libv4l2-x86.a
+#	)

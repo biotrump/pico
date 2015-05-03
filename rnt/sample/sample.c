@@ -213,7 +213,9 @@ void process_image(IplImage* frame, int draw, int print)
 	}
 }
 
-void process_image_v4l2(IplImage* frame, int draw, int print)
+//V4L2_PIX_FMT_YUYV : p is only Y channel.
+void process_image_v4l2(const void *p, int width, int height,
+int draw, int print)
 {
 	int i, j;
 	float t;
@@ -266,21 +268,23 @@ void process_image_v4l2(IplImage* frame, int draw, int print)
 	if(!pyr[0])
 	{
 		//
-		gray = cvCreateImage(cvSize(frame->width, frame->height), frame->depth, 1);
+		gray = cvCreateImage(cvSize(width, height), IPL_DEPTH_8U, 1);
 
 		//
 		pyr[0] = gray;
-		pyr[1] = cvCreateImage(cvSize(frame->width/2, frame->height/2), frame->depth, 1);
-		pyr[2] = cvCreateImage(cvSize(frame->width/4, frame->height/4), frame->depth, 1);
-		pyr[3] = cvCreateImage(cvSize(frame->width/8, frame->height/8), frame->depth, 1);
-		pyr[4] = cvCreateImage(cvSize(frame->width/16, frame->height/16), frame->depth, 1);
+		pyr[1] = cvCreateImage(cvSize(width/2, height/2), frame->depth, 1);
+		pyr[2] = cvCreateImage(cvSize(width/4, height/4), frame->depth, 1);
+		pyr[3] = cvCreateImage(cvSize(width/8, height/8), frame->depth, 1);
+		pyr[4] = cvCreateImage(cvSize(width/16, height/16), frame->depth, 1);
 	}
 
 	// get grayscale image
-	if(frame->nChannels == 3)
-		cvCvtColor(frame, gray, CV_RGB2GRAY);
-	else
-		cvCopy(frame, gray, 0);
+	//if(frame->nChannels == 3)
+	//	cvCvtColor(frame, gray, CV_RGB2GRAY);
+	//else
+	//	cvCopy(frame, gray, 0);
+	//YUYV
+	memcpy(gray->imageData, p, width * height);
 
 	// perform detection with the pico library
 	t = getticks();
@@ -292,12 +296,14 @@ void process_image_v4l2(IplImage* frame, int draw, int print)
 		//
 		pyr[0] = gray;
 
-		pixels = (uint8_t*)pyr[0]->imageData;
+		pixels = (uint8_t*)p;
 		nrows = pyr[0]->height;
 		ncols = pyr[0]->width;
 		ldim = pyr[0]->widthStep;
 
-		ndetections = find_objects(rs, cs, ss, qs, MAXNDETECTIONS, run_detection_cascade, pixels, nrows, ncols, ldim, scalefactor, stridefactor, MAX(16, minsize), MIN(128, maxsize));
+		ndetections = find_objects(rs, cs, ss, qs, MAXNDETECTIONS, run_detection_cascade,
+		pixels, nrows, ncols, ldim, scalefactor, stridefactor, MAX(16, minsize),
+		MIN(128, maxsize));
 
 		for(i=1; i<5; ++i)
 		{
@@ -329,7 +335,9 @@ void process_image_v4l2(IplImage* frame, int draw, int print)
 		ldim = gray->widthStep;
 
 		//
-		ndetections = find_objects(rs, cs, ss, qs, MAXNDETECTIONS, run_detection_cascade, pixels, nrows, ncols, ldim, scalefactor, stridefactor, minsize, MIN(nrows, ncols));
+		ndetections = find_objects(rs, cs, ss, qs, MAXNDETECTIONS,
+		run_detection_cascade, pixels, nrows, ncols, ldim, scalefactor,
+		stridefactor, minsize, MIN(nrows, ncols));
 	}
 
 	ndetections = cluster_detections(rs, cs, ss, qs, ndetections);
