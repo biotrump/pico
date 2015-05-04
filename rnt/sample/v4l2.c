@@ -78,6 +78,8 @@ static int				roi_Y_OFFSET;
 static int g_fps=10;
 
 extern void process_image(IplImage* frame, int draw, int print);
+extern int pico_facedetection(IplImage* frame, int draw, int print, int maxdetect,
+	float *frs, float *fcs, float *fss);
 
 static void errno_exit(const char *s)
 {
@@ -758,6 +760,8 @@ static void processFrame(const void *p, int size)
 		//		return ;
 		//	}
 		//RGB888
+		int nd=0;
+		float rs[4],cs[4],ss[4];
 		framecopy = cvCreateImage(cvSize(win_width, win_height), IPL_DEPTH_8U, 3);
 		Ycopy = cvCreateImage(cvSize(win_width, win_height), IPL_DEPTH_8U, 1);
 		//if(enableInfraRed)
@@ -766,18 +770,33 @@ static void processFrame(const void *p, int size)
 			//yuyv_to_rgb24(win_width, win_height, (unsigned char *)p, framecopy->imageData);
 			//process_image(framecopy, 1, 1);
 			extractY(win_width, win_height, (unsigned char *)p, Ycopy->imageData);
-			process_image(Ycopy, 1, 1);
+			//process_image(Ycopy, 1, 1);
+			nd=pico_facedetection(Ycopy, 1, 1, 4, rs, cs, ss);
+			printf("*nd=%d\n",nd);
 
 		//}
 		//setup a rectangle ROI
-		roi_WIDTH = (win_width>>2);	//160
-		roi_HEIGHT = (win_height/3);	//160
-		roi_Y_OFFSET =	(70);//(DEFAULT_HEIGHT/win_height);
-		//the ROI in the image
-		sroi.x = (framecopy->width - roi_WIDTH)/2 - 1;
-		sroi.y = (framecopy->height - roi_HEIGHT)/2 - 1+ roi_Y_OFFSET;
-		sroi.width = roi_WIDTH;
-		sroi.height = roi_HEIGHT ;
+		if(nd){//sqrt(2)=1.414
+			roi_Y_OFFSET =	roi_HEIGHT/10;
+			roi_WIDTH = ss[0]/1.414f;
+			roi_HEIGHT = ss[0]/1.414f + roi_Y_OFFSET;
+
+			//the ROI in the image
+			sroi.x = cs[0] - roi_WIDTH/2;
+			sroi.y = rs[0] - roi_HEIGHT/2 + roi_Y_OFFSET;
+			sroi.width = roi_WIDTH;
+			sroi.height = roi_HEIGHT ;
+
+		}else{
+			roi_WIDTH = (win_width>>2);	//160
+			roi_HEIGHT = (win_height/3);	//160
+			roi_Y_OFFSET =	(70);//(DEFAULT_HEIGHT/win_height);
+			//the ROI in the image
+			sroi.x = (framecopy->width - roi_WIDTH)/2 - 1;
+			sroi.y = (framecopy->height - roi_HEIGHT)/2 - 1+ roi_Y_OFFSET;
+			sroi.width = roi_WIDTH;
+			sroi.height = roi_HEIGHT ;
+		}
 	}
 
 	char tempbuf[40];
