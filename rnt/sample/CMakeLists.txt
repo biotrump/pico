@@ -6,6 +6,16 @@ message("PROJECT_NAME : ${PROJECT_NAME}")
 message("pico-rt_SOURCE_DIR : ${pico-rt_SOURCE_DIR}")
 message("pico-rt_BINARY_DIR : ${pico-rt_BINARY_DIR}")
 
+if("${CMAKE_BUILD_TYPE}" MATCHES "Debug")
+  add_definitions(-DDEBUG)
+  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -g -O0 -fPIC")
+  set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -std=c99 -g -O0 -fPIC -D_POSIX_C_SOURCE=200112L")
+else("${CMAKE_BUILD_TYPE}" MATCHES "Debug")
+  add_definitions(-DARMA_NO_DEBUG)
+  add_definitions(-DNDEBUG)
+  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O3")
+  set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -std=c99 -O3 -fPIC -D_POSIX_C_SOURCE=200112L")
+endif("${CMAKE_BUILD_TYPE}" MATCHES "Debug")
 
 set(OpenCV_DIR $ENV{OPENCV_OUT})
 message("++++OpenCV_DIR:${OpenCV_DIR}")
@@ -20,6 +30,29 @@ if(OpenCV_FOUND)
 else(OpenCV_FOUND)
 	message(FATAL_ERROR "openCV not foud")
 endif(OpenCV_FOUND)
+
+# --------------------------------------------------
+set(V4L2_LIB_DIR $ENV{V4L2_LIB_DIR})
+find_path(V4L2_INC capture-v4l2.h
+			HINTS ${V4L2_LIB_DIR} )
+message("INC:${V4L2_INC}" )
+include_directories("${V4L2_INC}")
+
+#finding libv4l2.a
+if(ANDROID_NDK)
+	find_library (V4L2-LIB
+		NAMES v4l2-arm
+		PATHS ${V4L2_LIB_DIR}/build_and/lib
+		PATH_SUFFIXES lib
+		NO_DEFAULT_PATH)
+else(ANDROID_NDK)
+	find_library (V4L2-LIB
+		NAMES v4l2-x86
+		PATHS ${V4L2_LIB_DIR}/build_x86/lib
+		PATH_SUFFIXES lib
+		NO_DEFAULT_PATH)
+endif(ANDROID_NDK)
+message("V4L2-LIB=${V4L2-LIB} ")
 
 #set(V4L2_LIB_DIR $ENV{V4L2_LIB_DIR})
 #message("V4L2_LIB_DIR is ${V4L2_LIB_DIR}")
@@ -65,12 +98,12 @@ TARGET_LINK_LIBRARIES(pico-rt
 	${OpenCV_LIBS}
 	)
 
-#ADD_EXECUTABLE( v4l2
-#	v4l2.c
-#	)
+ADD_EXECUTABLE( v4l2-pico
+	v4l2.c
+	)
 
-#TARGET_LINK_LIBRARIES(v4l2
-#	pico
-#	${OpenCV_LIBS}
+TARGET_LINK_LIBRARIES(v4l2-pico
+	pico
+	${OpenCV_LIBS}
 #	${OpenCV_LIBS} ${V4L2_LIB_DIR}/build_x86/lib/libv4l2-x86.a
-#	)
+	)

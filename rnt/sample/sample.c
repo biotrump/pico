@@ -213,6 +213,7 @@ void process_image(IplImage* frame, int draw, int print)
 	}
 }
 
+#if 0
 //V4L2_PIX_FMT_YUYV : p is only Y channel.
 void process_image_v4l2(const void *p, int width, int height,
 int draw, int print)
@@ -362,6 +363,7 @@ int draw, int print)
 		printf("# %f\n", 1000.0f*t); // use '#' to ignore this line when parsing the output of the program
 	}
 }
+#endif
 
 void process_webcam_frames()
 {
