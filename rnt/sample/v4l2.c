@@ -777,7 +777,7 @@ static void processFrame(const void *p, int size)
 		//}
 		//setup a rectangle ROI
 		if(nd){//sqrt(2)=1.414
-			roi_Y_OFFSET =	roi_HEIGHT/10;
+			roi_Y_OFFSET =	ss[0]/10;
 			roi_WIDTH = ss[0]/1.414f;
 			roi_HEIGHT = ss[0]/1.414f + roi_Y_OFFSET;
 
