@@ -96,7 +96,7 @@ if(ANDROID_NDK)
 
 else(ANDROID_NDK)
 
-	ADD_LIBRARY(pico-lib-${TARGET_ARCH} STATIC
+	ADD_LIBRARY(pico-${TARGET_ARCH} STATIC
 		sample.c
 		../picornt.c
 		)
@@ -106,7 +106,7 @@ else(ANDROID_NDK)
 		)
 
 	TARGET_LINK_LIBRARIES(pico-rt
-		pico-lib-${TARGET_ARCH}
+		pico-${TARGET_ARCH}
 		${OpenCV_LIBS}
 		)
 
@@ -115,7 +115,7 @@ else(ANDROID_NDK)
 		)
 
 	TARGET_LINK_LIBRARIES(pico-v4l2
-		pico-lib-${TARGET_ARCH}
+		pico-${TARGET_ARCH}
 		${OpenCV_LIBS}
 #	${OpenCV_LIBS} ${V4L2_LIB_DIR}/build_x86/lib/libv4l2-x86.a
 		)
