@@ -2,35 +2,30 @@
 #Thomas Tsai <thomas@biotrump.com>
 #temp for my workspace
 
-if [ -z "$BIOTRUMP_DIR" ]; then
-	echo "no shell ENV exported!"
-	echo ". setup.sh to export .config"
-	pushd ../..
-	. setup.sh
-	popd
-
-	#libblis.a
-	export BLIS_LIB_NAME=${BLIS_LIB_NAME:-blis}
-	#libffts-x86_64.a
-	export FFTS_LIB_NAME=ffts-${TARGET_ARCH}
-
-	export LAPACK_LIB=${LAPACK_LIB:-${LAPACK_OUT}/lib}
-	export LAPACKE_SRC=${LAPACKE_SRC:-${LAPACK_SRC}/LAPACKE}
-	export CBLAS_SRC=${CBLAS_SRC:-${LAPACK_SRC}/CBLAS}
-fi
-
-if [ ! -d ${DSPLIB_OUT} ]; then
-	mkdir -p ${DSPLIB_OUT}
+if [ -z "$PICO_DIR" ]; then
+	export DSP_HOME=${DSP_HOME:-`pwd`/../../../../dsp}
+	export PICO_DIR=${PICO_DIR:-`pwd`/../..}
+	export BLIS_DIR=${DSP_HOME}/blis
+	export BLIS_DIR=${DSP_HOME}/blis
+	export BLISLIB_DIR=${BLISLIB_DIR:-${BLIS_DIR}/lib}
+	export FFTS_DIR=${DSP_HOME}/ffts
+	export LAPACK_SRC=${LAPACK_SRC:-${DSP_HOME}/LAPACK}
 else
-	rm -rf ${DSPLIB_OUT}/*
+	export BLISLIB_DIR=${BLISLIB_DIR:-$BLIS_OUT/lib}
 fi
-pushd ${DSPLIB_OUT}
+export LAPACKE_SRC=${LAPACKE_SRC:-${LAPACK_SRC}/LAPACKE}
+export CBLAS_SRC=${CBLAS_SRC:-${LAPACK_SRC}/CBLAS}
+export PICORT_HOME=${PICORT_HOME:-`pwd`}
 
-cmake -DFFTS_DIR:FILEPATH=${FFTS_DIR} -DFFTS_OUT:FILEPATH=${FFTS_OUT} \
--DFFTS_LIB_NAME=${FFTS_LIB_NAME} \
--DATLAS_SRC:FILEPATH=${ATLAS_SRC} -DATLAS_OUT:FILEPATH=${ATLAS_OUT} \
--DHAVE_SSE=1 -DTARGET_ARCH=${TARGET_ARCH} \
-${DSPLIB_DIR}
+if [ ! -d ${PICO_OUT} ]; then
+	mkdir -p ${PICO_OUT}
+else
+	rm -rf ${PICO_OUT}/*
+fi
+pushd ${PICO_OUT}
+
+cmake -DHAVE_SSE=1 -DTARGET_ARCH=${TARGET_ARCH} \
+${PICORT_HOME}
 
 #-DLAPACK_SRC:FILEPATH=${LAPACK_SRC} -DLAPACK_BUILD:FILEPATH=${LAPACK_BUILD} \
 #-DLAPACK_LIB:FILEPATH=${LAPACK_LIB} -DLAPACKE_SRC:FILEPATH=${LAPACKE_SRC} \
