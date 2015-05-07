@@ -1178,7 +1178,7 @@ static void init_mmap(void)
 		printf("\tbuf.memory: %d\n", buf.memory);
 		printf("\tbuf.m.offset: %d\n", buf.m.offset);
 		printf("\tbuf.length: %d\n", buf.length);
-		printf("\tbuf.input: %d\n", buf.input);
+		//printf("\tbuf.input: %d\n", buf.input);
 		printf("\n");
 
 		buffers[n_buffers].length = buf.length;
