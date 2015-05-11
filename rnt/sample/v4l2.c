@@ -78,7 +78,7 @@ static int				roi_Y_OFFSET;
 static int g_fps=10;
 
 extern void process_image(IplImage* frame, int draw, int print);
-extern int pico_facedetection(IplImage* frame, int draw, int print, int maxdetect,
+extern int pico_facedetection_cv(IplImage* frame, int draw, int print, int maxdetect,
 	float *frs, float *fcs, float *fss);
 
 static void errno_exit(const char *s)
@@ -771,7 +771,7 @@ static void processFrame(const void *p, int size)
 			//process_image(framecopy, 1, 1);
 			extractY(win_width, win_height, (unsigned char *)p, Ycopy->imageData);
 			//process_image(Ycopy, 1, 1);
-			nd=pico_facedetection(Ycopy, 1, 1, 4, rs, cs, ss);
+			nd=pico_facedetection_cv(Ycopy, 1, 1, 4, rs, cs, ss);
 			printf("*nd=%d\n",nd);
 
 		//}

@@ -214,6 +214,7 @@ int process_image(IplImage* frame, int draw, int print)
 	return ndetections;
 }
 
+#if 0
 int pico_facedetection(void* frame, int width, int height, int channel,
 	int maxdetect, float *frs, float *fcs, float *fss)
 {
@@ -367,6 +368,7 @@ int pico_facedetection(void* frame, int width, int height, int channel,
 	}
 	return j;
 }
+#endif
 
 int pico_facedetection_cv(IplImage* frame, int draw, int print, int maxdetect,
 	float *frs, float *fcs, float *fss)
