@@ -20,7 +20,7 @@
 #pragma once
 
 /*
-	
+
 */
 
 int find_objects
@@ -32,3 +32,7 @@ int find_objects
 		);
 
 int cluster_detections(float rs[], float cs[], float ss[], float qs[], int n);
+
+//without openCV dependancy
+int pico_facedetection(void* frame, int width, int height,
+	int maxdetect, float *frs, float *fcs, float *fss);
