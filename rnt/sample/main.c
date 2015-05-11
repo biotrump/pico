@@ -3,8 +3,9 @@
 #include <cv.h>
 #include <highgui.h>
 
-extern void process_image_v4l2(const void *p, int width, int height,
-int draw, int print);
+//extern void process_image_v4l2(const void *p, int width, int height,
+//int draw, int print);
+extern int process_image(IplImage* frame, int draw, int print);
 extern void process_webcam_frames();
 extern int minsize;
 extern int maxsize;

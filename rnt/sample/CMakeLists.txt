@@ -122,6 +122,7 @@ else(ANDROID_NDK)
 		${OpenCV_LIBS}
 #	${OpenCV_LIBS} ${V4L2_LIB_DIR}/build_x86/lib/libv4l2-x86.a
 		)
+
 	add_dependencies(pico-v4l2
 					${OpenCV_LIBS}
 					)

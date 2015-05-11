@@ -29,6 +29,9 @@
 #define	MIN_SIZE (128)
 #define	MAX_SIZE (1024)
 
+typedef unsigned char uint8_t;
+typedef short int16_t;
+
 int find_objects
 		(
 			float rs[], float cs[], float ss[], float qs[], int maxndetections,
@@ -216,7 +219,7 @@ int pico_facedetection(void* frame, int width, int height,
 
 	void* gray = NULL;
 	void* pyr[5] = {NULL, NULL, NULL, NULL, NULL};
-
+	printf("%s: %d %d %d\n", __func__, width, height, maxdetect);
 	/*
 		IMPORTANT:
 			* these parameters are highly specific for each detection cascade
@@ -251,8 +254,10 @@ int pico_facedetection(void* frame, int width, int height,
 //	t = getticks();
 
 	if( (gray = malloc(width*height)) == NULL ){
-
+		printf("!!!!gray malloc failure\n");
 		return 0;
+	}else{
+		memcpy(gray, frame, width*height);
 	}
 	if(usepyr)
 	{
@@ -311,12 +316,11 @@ int pico_facedetection(void* frame, int width, int height,
 	}
 	else
 	{
-		//
-		pixels = (uint8_t*)gray;
+		pixels = frame;//(uint8_t*)gray;
 		nrows = height;
 		ncols = width;
 		ldim = width;	//gray->widthStep;
-
+		printf("ldim=%d\n", ldim);
 		//
 		ndetections = find_objects(rs, cs, ss, qs, MAXNDETECTIONS, run_detection_cascade,
 								   pixels, nrows, ncols, ldim, scalefactor,
