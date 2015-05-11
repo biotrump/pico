@@ -99,12 +99,12 @@ if(ANDROID_NDK)
 		)
 else(ANDROID_NDK)
 	ADD_LIBRARY(pico-${TARGET_ARCH} STATIC
-		sample.c
 		../picornt.c
 		)
 
 	ADD_EXECUTABLE( pico-rt
 		main.c
+		sample.c
 		)
 
 	TARGET_LINK_LIBRARIES(pico-rt
@@ -114,6 +114,7 @@ else(ANDROID_NDK)
 
 	ADD_EXECUTABLE( pico-v4l2
 		v4l2.c
+		sample.c
 		)
 
 	TARGET_LINK_LIBRARIES(pico-v4l2
