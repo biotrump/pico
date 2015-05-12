@@ -18,7 +18,7 @@
  */
 
 #pragma once
-#define	MAX_FACES	(2)	//up to 4 faces are detected!
+
 /*
 
 */
