@@ -29,6 +29,33 @@
 #define	MIN_SIZE (128)
 #define	MAX_SIZE (1024)
 
+#ifdef __ANDROID__
+	#include <android/log.h>
+	#define NDKLOG(fmt, ...) __android_log_print(ANDROID_LOG_INFO, "bcv-dsp", fmt, ##__VA_ARGS__)
+#endif
+
+#define	DEBUG_BUILD	1
+
+#ifdef DEBUG_BUILD
+	#ifdef __ANDROID__
+		#define _pr_debug(flag, fmt, arg...) \
+			NDKLOG(fmt, ##arg)
+	#else
+		#define _pr_debug(flag, fmt, arg...) \
+			printf(fmt, ##arg)
+	#endif
+
+	#define _pr_log(fmt, arg...) \
+		if (g_fdebug) fprintf(g_fdebug, fmt, ##arg)
+
+	#define pr_debug(flag, fmt, arg...) \
+		_pr_debug(flag, fmt, ##arg);
+#else
+	#define _pr_debug(fmt, arg...)
+	#define _pr_log(fmt, arg...)
+	#define pr_debug(flag, fmt, arg...)
+#endif
+
 typedef unsigned char uint8_t;
 typedef short int16_t;
 
@@ -219,7 +246,7 @@ int pico_facedetection(void* frame, int width, int height,
 
 	void* gray = NULL;
 	void* pyr[5] = {NULL, NULL, NULL, NULL, NULL};
-	printf("%s: %d %d %d\n", __func__, width, height, maxdetect);
+	pr_debug(1, "%s: %d %d %d\n", __func__, width, height, maxdetect);
 	/*
 		IMPORTANT:
 			* these parameters are highly specific for each detection cascade
@@ -254,7 +281,7 @@ int pico_facedetection(void* frame, int width, int height,
 //	t = getticks();
 
 	if( (gray = malloc(width*height)) == NULL ){
-		printf("!!!!gray malloc failure\n");
+		pr_debug(1, "!!!!gray malloc failure\n");
 		return 0;
 	}else{
 		memcpy(gray, frame, width*height);
@@ -316,11 +343,11 @@ int pico_facedetection(void* frame, int width, int height,
 	}
 	else
 	{
-		pixels = frame;//(uint8_t*)gray;
+		pixels = gray;
 		nrows = height;
 		ncols = width;
 		ldim = width;	//gray->widthStep;
-		printf("ldim=%d\n", ldim);
+		pr_debug(1, "ldim=%d\n", ldim);
 		//
 		ndetections = find_objects(rs, cs, ss, qs, MAXNDETECTIONS, run_detection_cascade,
 								   pixels, nrows, ncols, ldim, scalefactor,
@@ -359,6 +386,8 @@ int pico_facedetection(void* frame, int width, int height,
 			fcs[j]=cs[i];
 			fss[j++]=ss[i];
 	}
+	if( gray ) free(gray);
+	pr_debug(1,"ndetections=%d, maxdetect=%d, j=%d", ndetections,  maxdetect, j);
 	return j;
 }
 
