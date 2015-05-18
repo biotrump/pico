@@ -2,8 +2,6 @@
 #export CMAKE_BUILD_TYPE "Debug"
 export CMAKE_BUILD_TYPE="Release"
 
-
-
 if [ -z "${NDK_ROOT}"  ]; then
 	export NDK_ROOT=${HOME}/NDK/android-ndk-r10d
 	#export NDK_ROOT=${HOME}/NDK/android-ndk-r9
