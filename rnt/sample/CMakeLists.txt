@@ -64,11 +64,11 @@ if(NOT ANDROID_NDK)
 				NO_DEFAULT_PATH)
 		else(ANDROID_NDK)
 		#lib"v4l2-x86_64".a
-		if("${TARGET_ARCH}" STREQUAL "")
-			set(TARGET_ARCH, "x86_64")
+		if("${APP_ABI}" STREQUAL "")
+			set(APP_ABI, "x86_64")
 		endif()
 			find_library (V4L2-LIB
-				NAMES v4l2-${TARGET_ARCH}
+				NAMES v4l2-${APP_ABI}
 				PATHS ${V4L2_LIB_OUT}
 				PATH_SUFFIXES lib
 				NO_DEFAULT_PATH)
@@ -94,11 +94,11 @@ set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY ${pico-rt_BINARY_DIR}/lib)
 #dynamic or static link
 #TARGET_LINK_LIBRARIES( pico-rt ${OpenCV_LIBS} ${V4L2_LIB_DIR}/build_x86/lib/libv4l2-x86.a )
 if(ANDROID_NDK)
-	ADD_LIBRARY(picort-NDK-${TARGET_ARCH} STATIC
+	ADD_LIBRARY(picort STATIC
 		../picornt.c
 		)
 else(ANDROID_NDK)
-	ADD_LIBRARY(pico-${TARGET_ARCH} STATIC
+	ADD_LIBRARY(pico STATIC
 		../picornt.c
 		)
 
@@ -108,7 +108,7 @@ else(ANDROID_NDK)
 		)
 
 	TARGET_LINK_LIBRARIES(pico-rt
-		pico-${TARGET_ARCH}
+		pico
 		${OpenCV_LIBS}
 		)
 
@@ -118,7 +118,7 @@ else(ANDROID_NDK)
 		)
 
 	TARGET_LINK_LIBRARIES(pico-v4l2
-		pico-${TARGET_ARCH}
+		pico
 		${OpenCV_LIBS}
 #	${OpenCV_LIBS} ${V4L2_LIB_DIR}/build_x86/lib/libv4l2-x86.a
 		)
