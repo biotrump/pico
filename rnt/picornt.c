@@ -347,7 +347,16 @@ int pico_facedetection(void* frame, int width, int height,
 		nrows = height;
 		ncols = width;
 		ldim = width;	//gray->widthStep;
-		pr_debug(1, "ldim=%d\n", ldim);
+		int minsize;
+		/* phone front camera: hand and arm can reach very far,
+		 * so face is larger than 1/3 height in portrait mode
+		 */
+		minsize = MAX(nrows, ncols)/3;
+		if(ldim > 360)
+			scalefactor = 1.2f;
+		else
+			scalefactor = 1.1f;
+		pr_debug(1, "ldim=%d, mindim=%d\n", ldim, minsize);
 		//
 		ndetections = find_objects(rs, cs, ss, qs, MAXNDETECTIONS, run_detection_cascade,
 								   pixels, nrows, ncols, ldim, scalefactor,
