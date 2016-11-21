@@ -2,7 +2,8 @@
 #
 #
 
-OPENCV = -lopencv_highgui -lopencv_core -lopencv_imgcodecs -lopencv_imgproc -lopencv_videoio
+OPENCV = -lopencv_highgui -lopencv_core -lopencv_imgproc
+#-lopencv_imgcodecs -lopencv_imgproc -lopencv_videoio
 
 #
 #

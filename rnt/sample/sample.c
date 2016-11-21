@@ -7,7 +7,9 @@
 
 // OpenCV 3.x required
 // depending on your computer configuration (OpenCV install path), the following line might need modifications
-#include "/usr/local/include/opencv2/highgui/highgui_c.h"
+#include <opencv/cv.h>
+#include <opencv/cxcore.h>
+#include <opencv/highgui.h>
 
 //
 #include "../picornt.h"
